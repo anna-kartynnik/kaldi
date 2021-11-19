@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 
 from pydub import AudioSegment
 
+import file_utils
+
 # XML constants
 XML_NAMESPACES = {'nite': 'http://nite.sourceforge.net/'}
 SEGMENT_TAG_NAME = 'segment'
@@ -18,8 +20,8 @@ SEGMENT_TRANSCRIBER_END_TAG_NAME = 'transcriber_end'
 WORD_STARTTIME_TAG_NAME = 'starttime'
 WORD_ENDTIME_TAG_NAME = 'endtime'
 
-DEFAULT_COMBINED_FILE_NAME = 'combined'
-DEFAULT_ENROLLMENT_FILE_NAME = 'enrollment'
+#DEFAULT_COMBINED_FILE_NAME = 'combined'
+#DEFAULT_ENROLLMENT_FILE_NAME = 'enrollment'
 
 
 class SegmentPoint(object):
@@ -72,24 +74,25 @@ def convert_speaker_id_str_to_int(speaker_id_str: str) -> int:
   return ord(speaker_id_str) - ord('A')
 
 
-def get_output_files_folder(output_folder: str, meeting_id: str, speaker_id: int):
-  """
-  """
-  return os.path.join(output_folder, meeting_id, str(speaker_id), 'segments')
+# def get_output_files_folder(output_folder: str, meeting_id: str, speaker_id: int):
+#   """
+#   """
+#   return os.path.join(output_folder, meeting_id, str(speaker_id), 'segments')
 
-def get_enrollment_output_folder(output_folder: str, meeting_id: str, speaker_id: int):
-  """
-  """
-  return os.path.join(output_folder, meeting_id, str(speaker_id), 'enrollment')
+# def get_enrollment_output_folder(output_folder: str, meeting_id: str, speaker_id: int):
+#   """
+#   """
+#   return os.path.join(output_folder, meeting_id, str(speaker_id), 'enrollment')
 
 def concatenate_audio_files(output_folder: str, meeting_id: str, speaker_id: int):
   """
   """
-  output_files_folder = get_output_files_folder(output_folder, meeting_id, speaker_id)
-  combined_file_path = os.path.join(
-    output_files_folder,
-    f'{meeting_id}.{DEFAULT_COMBINED_FILE_NAME}-{speaker_id}.wav'
-  )
+  output_files_folder = file_utils.get_clean_segments_folder(output_folder, meeting_id, speaker_id)
+  combined_file_path = file_utils.get_combined_file_path(output_files_folder, meeting_id, speaker_id)
+  # os.path.join(
+  #   output_files_folder,
+  #   f'{meeting_id}.{DEFAULT_COMBINED_FILE_NAME}-{speaker_id}.wav'
+  # )
   if os.path.exists(combined_file_path):
     os.remove(combined_file_path)
 
@@ -185,7 +188,7 @@ def save_enrollment(output_folder: str, meeting_id: str, number_of_speakers: int
   # Should be run before concatenation code since the code assumes the output folder consists
   # of only individual segment files.
   for speaker_id_int in range(number_of_speakers):
-    audio_segment_files_folder = get_output_files_folder(output_folder, meeting_id, speaker_id_int)
+    audio_segment_files_folder = file_utils.get_clean_segments_folder(output_folder, meeting_id, speaker_id_int)
     audio_segment_files = glob.glob(os.path.join(audio_segment_files_folder, '*.wav'))
 
     filtered_segment_files = list(
@@ -203,7 +206,7 @@ def save_enrollment(output_folder: str, meeting_id: str, number_of_speakers: int
     print(f'Enrollment file has been chosen, its duration is {extract_duration_from_segment_file(random_enrollment_file_name)} (ms).')
 
     # Move the enrollment file into a separate folder.
-    enrollment_folder = get_enrollment_output_folder(
+    enrollment_folder = file_utils.get_enrollment_output_folder(
       output_folder,
       meeting_id,
       speaker_id_int
@@ -212,10 +215,11 @@ def save_enrollment(output_folder: str, meeting_id: str, number_of_speakers: int
       os.makedirs(enrollment_folder)
     os.rename(
       random_enrollment_file_name,
-      os.path.join(
-        enrollment_folder,
-        f'{meeting_id}.{DEFAULT_ENROLLMENT_FILE_NAME}-{speaker_id_int}.wav'
-      )
+      file_utils.get_enrollment_file_path(enrollment_folder, meeting_id, speaker_id)
+      # os.path.join(
+      #   enrollment_folder,
+      #   f'{meeting_id}.{DEFAULT_ENROLLMENT_FILE_NAME}-{speaker_id_int}.wav'
+      # )
     )
 
 def extract_clean_audio(meeting_id: str, audio_folder: str,
@@ -333,7 +337,7 @@ def extract_clean_audio(meeting_id: str, audio_folder: str,
 
     audio_segment = speaker_original_audio_files[speaker_id_int][start:end]
 
-    output_files_folder = get_output_files_folder(
+    output_files_folder = file_utils.get_clean_segments_folder(
       output_folder,
       meeting_id,
       speaker_id_int
