@@ -1,0 +1,6 @@
+sudo apt-get install gawk
+sudo apt-get install libfst-tools
+
+
+
+https://asrman.blogspot.com/2020/02/kaldi-how-to-fix-error-of-expected.html
