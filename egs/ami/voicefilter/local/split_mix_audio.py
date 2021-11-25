@@ -1,8 +1,13 @@
+#!/usr/bin/env python
+
 import argparse
 import glob
 import os
 import shutil
 import random
+import multiprocessing as mp
+from tqdm import tqdm
+import time
 
 import file_utils
 
@@ -20,7 +25,8 @@ def split_meeting_audio_files(clean_audio_folder: str, meeting_id: str, chunk_le
 
     chunk_file_path = file_utils.get_chunk_file_path(chunks_folder, meeting_id, speaker_id_int)
 
-    sox_split_cmd_str = f'sox {combined_file_path} {chunk_file_path} trim 0 {chunk_length} : newfile : restart'
+    # [TODO] redo with pysox?
+    sox_split_cmd_str = f'sox {combined_file_path} {chunk_file_path} rate 16k channels 1 trim 0 {chunk_length} : newfile : restart'
 
     #'sox -n -b 16 relative_path/output.wav synth 2.25 sine 300 vol 0.5'
 
@@ -99,39 +105,89 @@ def mix_audio_files(clean_audio_folder: str, meeting_id: str, mix_parent_folder:
   )
 
 
+@file_utils.logger_decorator
+def process_meeting_folder(logs_folder: str, meeting_id: str, clean_audio_folder: str,
+                           chunk_length: int, mix_folder: str):
+  """
+  """
+  try:
+    meeting_folder = os.path.join(clean_audio_folder, meeting_id)
+    if os.path.isdir(meeting_folder):
+      # Meeting folder contains files like
+      # {clean_audio_folder}/{meeting_id}/{speaker_id_int}/segments/{meeting_id}.combined-{speaker_id_int}.wav
+
+      # First split into chunks.
+      split_meeting_audio_files(clean_audio_folder, meeting_id, chunk_length)
+
+      # Then mix different chunks.
+      mix_audio_files(clean_audio_folder, meeting_id, mix_folder)
+    return 1
+  except Exception as e:
+    print(f'Error has occurred: {e}')
+    return 0
+
+number_of_processed_meetings = 0
+def collect_split_mix_result(result):
+  global number_of_processed_meetings
+  number_of_processed_meetings += result
 
 
 def main():
   parser = argparse.ArgumentParser()
-  parser.add_argument('--clean-audio-folder', default='./../data/clean', type=str)
-  # TODO
-  #parser.add_argument('--noise-folder', default='./../data/clean', type=str)
-  parser.add_argument('--mix-folder', default='./../data/mix', type=str)
+  parser.add_argument('--clean-audio-folder', default='./../data/processed/clean', type=str)
+  parser.add_argument('--logs-folder', default='./../logs/mix', type=str)
+  parser.add_argument('--mix-folder', default='./../data/processed/mix', type=str)
   parser.add_argument('--chunk-length', default=3, type=int) # in seconds
-
-  
-  # parser.add_argument('--segments-transcript-folder', default='./../annotations/segments', type=str)
-  # parser.add_argument('--output-folder', default='./../data/clean', type=str)
-  # parser.add_argument('--offset', default=200, type=int)
-  # parser.add_argument('--combine', dest='combine', action='store_true')
-  # parser.add_argument('--no-combine', dest='combine', action='store_false')
-
-  #parser.set_defaults(combine=True)
+  parser.add_argument('--num-jobs', default=mp.cpu_count(), type=int)
 
   cfg = parser.parse_args()
 
-  # Parallel
+  print(f'Creating the output folder {cfg.mix_folder}')
+  if not os.path.exists(cfg.mix_folder):
+    os.makedirs(cfg.mix_folder)
 
-  for obj in os.listdir(cfg.clean_audio_folder):
-    if os.path.isdir(os.path.join(cfg.clean_audio_folder, obj)):
-      meeting_id = obj # {clean_audio_folder}/{meeting_id}/{speaker_id_int}/segments/{meeting_id}.combined-{speaker_id_int}.wav
+  print(f'Creating the logs folder {cfg.logs_folder}')
+  if not os.path.exists(cfg.logs_folder):
+    os.makedirs(cfg.logs_folder)
 
-      # First split into chunks.
-      split_meeting_audio_files(cfg.clean_audio_folder, meeting_id, cfg.chunk_length)
+  file_utils.save_config(cfg.logs_folder, cfg.__dict__)
 
-      # Then mix different chunks.
-      mix_audio_files(cfg.clean_audio_folder, meeting_id, cfg.mix_folder)
+  number_of_processors = mp.cpu_count()
+  if cfg.num_jobs > number_of_processors:
+    print(f'The number of jobs {cfg.num_jobs} is larger than the number of processors {number_of_processors}.')
+
+  num_jobs = min(cfg.num_jobs, number_of_processors)
+  print(f'Using {num_jobs} jobs')
+
+  pool = mp.Pool(num_jobs)
+
+  start_time = time.time()
+  meeting_list_folders = os.listdir(cfg.clean_audio_folder)
+  # [TODO] is there a better way to view the progress?
+  for meeting_id in tqdm(meeting_list_folders, total=len(meeting_list_folders)):
+    # if os.path.isdir(os.path.join(cfg.clean_audio_folder, obj)):
+    #   meeting_id = obj # {clean_audio_folder}/{meeting_id}/{speaker_id_int}/segments/{meeting_id}.combined-{speaker_id_int}.wav
+
+    #   # First split into chunks.
+    #   split_meeting_audio_files(cfg.clean_audio_folder, meeting_id, cfg.chunk_length)
+
+    #   # Then mix different chunks.
+    #   mix_audio_files(cfg.clean_audio_folder, meeting_id, cfg.mix_folder)
+    pool.apply_async(
+      process_meeting_folder,
+      args=(cfg.logs_folder, meeting_id, cfg.clean_audio_folder, cfg.chunk_length,
+            cfg.mix_folder),
+      callback=collect_split_mix_result
+    )
+
+  pool.close()
+  pool.join()
+
+  end_time = time.time()
+  print('The processing (splitting and mixture) has been finished.')
+  print(f'Number of successfully processed meetings {number_of_processed_meetings} out of {len(meeting_list_folders)}.')
+  print('Time spent: {:.2f} minutes'.format((end_time - start_time) / 60))    
 
 
 if __name__ == '__main__':
-    main()
+  main()

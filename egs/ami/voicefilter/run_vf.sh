@@ -3,14 +3,21 @@
 . ./cmd.sh
 . ./path.sh
 
-NOISY_AUDIO_DIR="experiments/data/mix"
-CLEAN_AUDIO_DIR="experiments/data/clean"
-ENROLLMENT_DIR="experiments/data/clean"
+AMI_AUDIO_DIR="experiments/amicorpus"
+AMI_ANNOTATIONS_DIR="experiments/annotations"
+NOISY_AUDIO_DIR="data/processed/mix"
+CLEAN_AUDIO_DIR="data/processed/clean"
+#"experiments/data/clean"
+#"data/processed/clean"
+ENROLLMENT_DIR="data/processed/clean"
 EMBEDDING_NNET_DIR="voxceleb_trained"
-DATA_DIR="data/train_orig" # [TODO]
+DATA_DIR="data/processed/train_orig" # [TODO]
 FEATURES_DIR=$DATA_DIR/noisy_embedding
+LOGS_DIR="logs"
+# Chunk length for voice filter in seconds
+CHUNK_LENGTH=3
 
-stage=2
+stage=1
 
 set -euo pipefail
 
@@ -25,7 +32,16 @@ mkdir -p $FEATURES_DIR
 #echo $abc
 #stage=100500
 
-# Data preparation
+# Data extraction (extract clean/enrollment/mixed audio using transcripts)
+if [ $stage -le 1 ]; then
+  python3 local/clean_audio_extractor.py --audio-folder $AMI_AUDIO_DIR --annotations-folder $AMI_ANNOTATIONS_DIR \
+    --output-folder $CLEAN_AUDIO_DIR --logs-folder $LOGS_DIR/extraction --offset 100 --enrollment-duration-threshold 2000 \
+    --chunk-length $CHUNK_LENGTH --combine --num-jobs 8
+  python3 local/split_mix_audio.py --clean-audio-folder $CLEAN_AUDIO_DIR --logs-folder $LOGS_DIR/mix \
+    --mix-folder $NOISY_AUDIO_DIR --chunk-length $CHUNK_LENGTH --num-jobs 8
+fi
+
+# Data preparation (preparing for feature extraction)
 if [ $stage -le 2 ]; then
   local/prepare_data.sh $NOISY_AUDIO_DIR $CLEAN_AUDIO_DIR $ENROLLMENT_DIR \
     $DATA_DIR/noisy $DATA_DIR/clean $DATA_DIR/enrollment

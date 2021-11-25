@@ -4,3 +4,9 @@ sudo apt-get install libfst-tools
 
 
 https://asrman.blogspot.com/2020/02/kaldi-how-to-fix-error-of-expected.html
+
+git add voxceleb_trained/final.raw 
+warning: CRLF will be replaced by LF in egs/ami/voicefilter/voxceleb_trained/final.raw.
+The file will have its original line endings in your working directory.
+
+python3 -m pip install -r requirements.txt

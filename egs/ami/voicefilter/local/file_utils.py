@@ -1,6 +1,9 @@
 import glob
 import os
 import shutil
+import json
+import sys
+import functools
 
 
 SEGMENTS_FOLDER_NAME = 'segments'
@@ -70,3 +73,32 @@ def get_mix_file_name(mix_output_folder: str, meeting_id: str, speaker_1_chunk_n
   """
   """
   return os.path.join(mix_output_folder, f'{meeting_id}.mixture-{speaker_1_chunk_number}-{speaker_2_chunk_number}.wav')
+
+def save_config(logs_folder: str, configuration: dict):
+  """
+  """
+  print('Saving the current configuration')
+  with open(os.path.join(logs_folder, 'config.txt'), 'w') as config_file:
+    json.dump(configuration, config_file)
+
+def logger_decorator(func):
+  """
+  Redirects print output to a file. Expects that the given function has
+  `logs_folder` as the first argument and `meeting_id` as the second one.
+  """
+  @functools.wraps(func)
+  def wrapper(*args, **kwargs):
+    original_stdout = sys.stdout
+    logger_file_name = 'logs.log'  # default name
+
+    if len(args) >= 2:
+      logs_folder = args[0]
+      meeting_id = args[1]
+      logger_file_name = os.path.join(logs_folder, f'{meeting_id}.log')
+
+    with open(logger_file_name, 'w') as logger_file:
+      sys.stdout = logger_file
+      result = func(*args, **kwargs)
+      sys.stdout = original_stdout
+      return result
+  return wrapper
