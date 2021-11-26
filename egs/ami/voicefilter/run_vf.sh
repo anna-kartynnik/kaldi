@@ -5,19 +5,21 @@
 
 AMI_AUDIO_DIR="experiments/amicorpus"
 AMI_ANNOTATIONS_DIR="experiments/annotations"
-NOISY_AUDIO_DIR="data/processed/mix"
-CLEAN_AUDIO_DIR="data/processed/clean"
+NOISY_AUDIO_DIR="data/audio/mix"
+CLEAN_AUDIO_DIR="data/audio/clean"
 #"experiments/data/clean"
 #"data/processed/clean"
-ENROLLMENT_DIR="data/processed/clean"
+ENROLLMENT_DIR="data/audio/clean"
 EMBEDDING_NNET_DIR="voxceleb_trained"
-DATA_DIR="data/processed/train_orig" # [TODO]
+PREPARED_DATA_DIR="data/prepared"
+DATA_DIR="data/processed"
 FEATURES_DIR=$DATA_DIR/noisy_embedding
 LOGS_DIR="logs"
-# Chunk length for voice filter in seconds
+VF_NNET_DIR=exp
+# Chunk length for voice filter (in seconds)
 CHUNK_LENGTH=3
 
-stage=1
+stage=4
 
 set -euo pipefail
 
@@ -44,21 +46,30 @@ fi
 # Data preparation (preparing for feature extraction)
 if [ $stage -le 2 ]; then
   local/prepare_data.sh $NOISY_AUDIO_DIR $CLEAN_AUDIO_DIR $ENROLLMENT_DIR \
-    $DATA_DIR/noisy $DATA_DIR/clean $DATA_DIR/enrollment
+    $PREPARED_DATA_DIR/noisy $PREPARED_DATA_DIR/clean $PREPARED_DATA_DIR/enrollment
+  # Combine dev and eval meetings to use them as a test set.
+  # [TODO] remove abc!!!!!
+  cat local/split_dev.orig local/split_eval.orig local/split_abc.orig | sort -u > local/split_test.orig
+  # Here the data will be splitted into train/test sets.
+  for audio_type in noisy clean enrollment; do
+    local/split_data.sh $PREPARED_DATA_DIR/$audio_type $DATA_DIR/$audio_type local
+  done
 fi
 #stage=100500
 
 # Embeddings preparation.
 if [ $stage -le 3 ]; then
-  steps/make_mfcc_pitch.sh --write-utt2num-frames true --mfcc-config conf/mfcc.conf --nj 2 --cmd "$train_cmd" \
-    $DATA_DIR/enrollment 
+  for dset in train test; do
+    steps/make_mfcc_pitch.sh --write-utt2num-frames true --mfcc-config conf/mfcc.conf --nj 2 \
+      --cmd "$train_cmd" $DATA_DIR/enrollment/$dset
 
-  sid/compute_vad_decision.sh --nj 2 --cmd "$train_cmd" \
-    $DATA_DIR/enrollment 
+    sid/compute_vad_decision.sh --nj 2 --cmd "$train_cmd" \
+      $DATA_DIR/enrollment/$dset
 
-  sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd" --nj 2 \
-    $EMBEDDING_NNET_DIR $DATA_DIR/enrollment \
-    $EMBEDDING_NNET_DIR/xvectors
+    sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd" --nj 2 \
+      $EMBEDDING_NNET_DIR $DATA_DIR/enrollment/$dset \
+      $DATA_DIR/xvectors/$dset
+  done
 fi
 #exit 1;
 #stage=100500
@@ -76,20 +87,28 @@ fi
 
 # Feature extraction.
 if [ $stage -le 4 ]; then
-  # For noisy audio.
-  steps/make_fbank.sh --nj 2 --cmd "$train_cmd" $DATA_DIR/noisy
-  # For clean audio.
-  steps/make_fbank.sh --nj 2 --cmd "$train_cmd" $DATA_DIR/clean
+  for dset in train test; do
+    for audio_type in noisy clean; do
+      steps/make_fbank.sh --nj 2 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
+    done
+    # # For noisy audio.
+    # steps/make_fbank.sh --nj 2 --cmd "$train_cmd" $DATA_DIR/noisy
+    # # For clean audio.
+    # steps/make_fbank.sh --nj 2 --cmd "$train_cmd" $DATA_DIR/clean
 
-  for f in spk2utt utt2spk; do
-    cp $DATA_DIR/noisy/$f $FEATURES_DIR/$f || exit 1;
+    mkdir -p $FEATURES_DIR/$dset || exit 1;
+    local/append_noisy_and_xvectors.sh $DATA_DIR/noisy/$dset $DATA_DIR/xvectors/$dset $FEATURES_DIR/$dset \
+      $LOGS_DIR --cmd "$train_cmd"
+
+    # for f in spk2utt utt2spk; do
+    #   cp $DATA_DIR/noisy/$f $FEATURES_DIR/$f || exit 1;
+    # done
+    # # Append (with repetitions) embedding vectors to noisy features in order to use both of them in nnet3 config.
+    # append-vector-to-feats scp:$DATA_DIR/noisy/feats.scp scp:$EMBEDDING_NNET_DIR/xvectors/xvector.scp ark,scp:$FEATURES_DIR/feats.ark,$FEATURES_DIR/feats.scp || exit 1
   done
-  # Append (with repetitions) embedding vectors to noisy features in order to use both of them in nnet3 config.
-  append-vector-to-feats scp:$DATA_DIR/noisy/feats.scp scp:$EMBEDDING_NNET_DIR/xvectors/xvector.scp ark,scp:$FEATURES_DIR/feats.ark,$FEATURES_DIR/feats.scp || exit 1
-
 fi
 
 # Train nnet
 if [ $stage -le 5 ]; then
-  local/train_voice_filter.sh $FEATURES_DIR $DATA_DIR/clean/feats.scp "temp" --cmd "$train_cmd"
+  local/train_voice_filter.sh $FEATURES_DIR/train $DATA_DIR/clean/train/feats.scp $VF_NNET_DIR --cmd "$train_cmd"
 fi

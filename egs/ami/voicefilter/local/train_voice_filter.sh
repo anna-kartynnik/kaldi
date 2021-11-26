@@ -5,7 +5,7 @@
 #
 
 
-config_nnet=1
+config_nnet=0
 # make_egs=0
 # combine_egs=1
 train_nnet=1
@@ -48,62 +48,15 @@ if [ -f path.sh ]; then . ./path.sh; fi
 # num_epochs=$5  # number of epochs through data
 # main_dir=$6    # location of /data and /exp dir (probably "MTL")
 
-hidden_dim=128
+#hidden_dim=128
 num_epochs=2
 
 data_dir=$1  # like data/train_orig/noisy
 targets_scp=$2 # like data/train_orig/clean/feats.scp
 #embedding_dir=$3
 exp_dir=$3
-master_egs_dir=$exp_dir/egs
+#master_egs_dir=$exp_dir/egs
 
-
-
-
-
-
-
-# if [ 1 ]; then
-
-#     #########################################
-#     ### SET VARIABLE NAMES AND PRINT INFO ###
-#     #########################################
-    
-#     # Check data files from each task
-#     # using ${typo_list[$i]}_ali for alignment dir
-#     for i in `seq 0 $[$num_tasks-1]`; do
-#         for f in $main_dir/data/${task_list[$i]}/train/{feats.scp,text} \
-#                       $main_dir/exp/${task_list[$i]}/${typo_list[$i]}_ali/ali.1.gz \
-#                       $main_dir/exp/${task_list[$i]}/${typo_list[$i]}_ali/tree; do
-#             [ ! -f $f ] && echo "$0: no such file $f" && exit 1;
-#         done
-#     done
-    
-#     # Make lists of dirs for tasks
-#     for i in `seq 0 $[$num_tasks-1]`; do
-#         multi_data_dirs[$i]=$main_dir/data/${task_list[$i]}/train
-#         multi_egs_dirs[$i]=$main_dir/exp/${task_list[$i]}/nnet3/egs
-#         multi_ali_dirs[$i]=$main_dir/exp/${task_list[$i]}/${typo_list[$i]}_ali
-#     done
-
-#     num_targets_list=()
-#     for i in `seq 0 $[$num_tasks-1]`;do
-
-#         num_targets=`tree-info ${multi_ali_dirs[$i]}/tree 2>/dev/null | grep num-pdfs | awk '{print $2}'` || exit 1;
-#     num_targets_list[$i]=$num_targets
-    
-#         echo ""
-#         echo "###### BEGIN TASK INFO ######"
-#         echo "task= ${task_list[$i]}"
-#         echo "num_targets= $num_targets"
-#         echo "data_dir= ${multi_data_dirs[$i]}"
-#         echo "ali_dir= ${multi_ali_dirs[$i]}"
-#         echo "egs_dir= ${multi_egs_dirs[$i]}"
-#         echo "###### END TASK INFO ######"
-#         echo ""
-
-#     done
-# fi
 
 
 
@@ -129,16 +82,19 @@ if [ "$config_nnet" -eq "1" ]; then
     num_targets=$feat_dim
 
     #hidden_dim=$hidden_dim
-    embedding_dim=512
+    xvector_dim=512
+    embedding_dim=128
     lstm_output_dim=400
     fc_dim=$feat_dim
-    input_dim=$(($feat_dim + $embedding_dim))
+    input_dim=$(($feat_dim + $xvector_dim))
     # The following definition is for the voice filter model
     cat <<EOF > $exp_dir/configs/network.xconfig
 input dim=$input_dim name=input
 
 dim-range-component name=fbanks input=input dim=$feat_dim dim-offset=0
-dim-range-component name=embedding input=input dim=$embedding_dim dim-offset=$feat_dim
+dim-range-component name=speaker_embedding input=input dim=$xvector_dim dim-offset=$feat_dim
+
+sigmoid-layer name=embedding input=speaker_embedding dim=$embedding_dim 
 
 conv-relu-batchnorm-layer name=conv1 input=fbanks height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-3,-2,-1,0,1,2,3 time-offsets=0
 conv-relu-batchnorm-layer name=conv2 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=0 time-offsets=-3,-2,-1,0,1,2,3
@@ -156,7 +112,7 @@ relu-layer name=lstmrelu input=Append(lstmforward, lstmbackward)
 
 relu-layer name=fc1 input=lstmrelu dim=$fc_dim
 sigmoid-layer name=fc2 input=fc1 dim=$fc_dim
-output-layer name=output dim=$fc_dim include-log-softmax=false objective-type=quadratic
+output name=output dim=$fc_dim objective-type=quadratic
 EOF
     
     # # Create separate outptut layer and softmax for all tasks.
