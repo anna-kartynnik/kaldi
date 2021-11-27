@@ -22,7 +22,7 @@ def split_meeting_audio_files(clean_audio_folder: str, meeting_id: str, chunk_le
     combined_folder = file_utils.get_clean_segments_folder(clean_audio_folder, meeting_id, speaker_id_int)
     combined_file_path = file_utils.get_combined_file_path(combined_folder, meeting_id, speaker_id_int)
 
-    if not os.exists(combined_file_path):
+    if not os.path.exists(combined_file_path):
       print('There are no combined audio file for speaker {speaker_id}, continue')
       continue
 
