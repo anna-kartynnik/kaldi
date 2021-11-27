@@ -99,6 +99,10 @@ def concatenate_audio_files(output_folder: str, meeting_id: str, speaker_id: int
   )
   print(f'{len(speaker_segment_audio_files)} audio files found for speaker {speaker_id}, meeting {meeting_id}.')
 
+  if len(speaker_segment_audio_files) == 0:
+    print(f'There are no audio segments for speaker {speaker_id}, do nothing')
+    return
+
   # [TODO] sort the segments first?
   speaker_wavs = [AudioSegment.from_wav(wav_path) for wav_path in speaker_segment_audio_files]
   # speaker_combined_wav = speaker_wavs[0]
@@ -218,6 +222,11 @@ def save_enrollment(output_folder: str, meeting_id: str, number_of_speakers: int
         audio_segment_files
       )
     )
+
+    if len(filtered_segment_files) == 0:
+      print(f'There are no segments for speaker {speaker_id_int}')
+      # [TODO] not continue? throw something?
+      continue
 
     # Choose a random audio segment as an enrollment file.
     random_enrollment_file_name = random.choice(filtered_segment_files)

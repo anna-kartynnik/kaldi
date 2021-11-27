@@ -15,10 +15,17 @@ import file_utils
 def split_meeting_audio_files(clean_audio_folder: str, meeting_id: str, chunk_length: int):
   """
   """
+  print(f'Starting audio splitting for meeting {meeting_id}')
   for speaker_id in os.listdir(os.path.join(clean_audio_folder, meeting_id)):
+    print(f'Splitting audio for speaker {speaker_id}')
     speaker_id_int = int(speaker_id)
     combined_folder = file_utils.get_clean_segments_folder(clean_audio_folder, meeting_id, speaker_id_int)
     combined_file_path = file_utils.get_combined_file_path(combined_folder, meeting_id, speaker_id_int)
+
+    if not os.exists(combined_file_path):
+      print('There are no combined audio file for speaker {speaker_id}, continue')
+      continue
+
     chunks_folder = file_utils.get_clean_chunks_folder(clean_audio_folder, meeting_id, speaker_id_int)
 
     file_utils.recreate_folder(chunks_folder)
@@ -83,6 +90,7 @@ def mix_audio_files(clean_audio_folder: str, meeting_id: str, mix_parent_folder:
       #print(speaker_2_chunk)
 
       create_audio_mixture(mix_output_folder, meeting_id, speaker_1_chunk, speaker_2_chunk)
+      create_audio_mixture(mix_output_folder, meeting_id, speaker_2_chunk, speaker_1_chunk)
 
       # [TODO] how to avoid creating the same mix file but consider both speakers as clean labels?
       #create_audio_mixture(mix_output_folder, meeting_id, speaker_2_chunk, speaker_1_chunk)
