@@ -23,7 +23,7 @@ SPLITS_DIR=$3
 
 # Data directory check
 if [ ! -d $DATA_DIR ]; then
-  echo "Error: $DATA_DIR directory does not exists."
+  echo "Error: $DATA_DIR directory does not exist."
   exit 1;
 fi
 
@@ -40,7 +40,7 @@ for dset in train test; do
 
   join $SPLITS_DIR/split_$dset.orig $LOCAL_OUTPUT_DIR/meetings2utt | \
     awk '{print $2}' - > $LOCAL_OUTPUT_DIR/utt_$dset
-  for f in wav.scp reco2file_and_channel utt2spk; do
+  for f in wav.scp utt2spk; do
     join $DATA_DIR/$f $LOCAL_OUTPUT_DIR/utt_$dset > $OUTPUT_DIR/$dset/$f || exit 1;
   done
   utils/utt2spk_to_spk2utt.pl <$OUTPUT_DIR/$dset/utt2spk >$OUTPUT_DIR/$dset/spk2utt || exit 1;

@@ -194,6 +194,8 @@ sub get_loglike_and_accuracy_info {
   my %iter_to_valid_loglike = ();
   my %iter_to_train_accuracy = ();
   my %iter_to_valid_accuracy = ();
+  my %iter_to_train_objective = ();
+  my %iter_to_valid_objective = ();
 
 
   foreach my $iter (@iters_array) {
@@ -206,6 +208,8 @@ sub get_loglike_and_accuracy_info {
           $iter_to_train_loglike{$iter} = $1;
         } elsif (m/Overall accuracy for 'output' is (\S+) per frame/) {
           $iter_to_train_accuracy{$iter} = $1;
+        } elsif (m/Overall objective for 'output' is (\S+) per frame/) {
+          $iter_to_train_objective{$iter} = $1;
         }
       }
       close(F);
@@ -214,6 +218,8 @@ sub get_loglike_and_accuracy_info {
           $iter_to_valid_loglike{$iter} = $1;
         } elsif (m/Overall accuracy for 'output' is (\S+) per frame/) {
           $iter_to_valid_accuracy{$iter} = $1;
+        } elsif (m/Overall objective for 'output' is (\S+) per frame/) {
+          $iter_to_valid_objective{$iter} = $1;
         }
       }
       close(G);
@@ -224,6 +230,9 @@ sub get_loglike_and_accuracy_info {
                              \%iter_to_valid_loglike);
   $ans .= get_printed_string("accuracy", \@iters_array, \%iter_to_train_accuracy,
                              \%iter_to_valid_accuracy);
+  $ans .= get_printed_string("objective", \@iters_array, \%iter_to_train_objective,
+                             \%iter_to_valid_objective);
+
   return $ans;
 }
 

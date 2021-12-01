@@ -63,6 +63,13 @@ def get_speaker_chunk_number(chunk_path: str):
   file_name = ''.join(file_basename.split('.')[0:-1])
   return file_name.split('-')[-1]
 
+def get_file_name(path: str):
+  """
+  """
+  file_basename = os.path.basename(path)
+  file_name = ''.join(file_basename.split('.')[0:-1])
+  return file_name
+
 def get_mix_folder(mix_parent_folder: str, meeting_id: str):
   """
   """

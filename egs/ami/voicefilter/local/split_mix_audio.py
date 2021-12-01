@@ -6,10 +6,32 @@ import os
 import shutil
 import random
 import multiprocessing as mp
-from tqdm import tqdm
+#from tqdm import tqdm
 import time
 
 import file_utils
+
+MAX_NUMBER_OF_SPEAKER_CHUNKS = 30
+MAX_NUMBER_OF_OTHER_NOISES_MIXTURES_PER_SPEAKER_PER_TYPE = 10
+
+def split_audio_file(source_file_path: str, target_file_path: str, chunk_length: int):
+  """
+  """
+  # [TODO] redo with pysox?
+  sox_split_cmd_str = f'sox -V0 {source_file_path} {target_file_path} rate 16k channels 1 trim 0 {chunk_length} : newfile : restart'
+
+  os.system(sox_split_cmd_str)
+
+def split_noises(musan_folder: str, output_folder: str, chunk_length: int):
+  """
+  """
+  for noise_type in ['music', 'noise', 'speech']:
+    file_utils.recreate_folder(os.path.join(output_folder, noise_type))
+    noise_folder = os.path.join(musan_folder, noise_type)
+    file_list = glob.glob(os.path.join(noise_folder, '**', '*.wav'))
+    for file_path in file_list:
+      target_file_path = os.path.join(output_folder, noise_type, f'{file_utils.get_file_name(file_path)}.wav')
+      split_audio_file(file_path, target_file_path, chunk_length)
 
 
 def split_meeting_audio_files(clean_audio_folder: str, meeting_id: str, chunk_length: int):
@@ -32,12 +54,47 @@ def split_meeting_audio_files(clean_audio_folder: str, meeting_id: str, chunk_le
 
     chunk_file_path = file_utils.get_chunk_file_path(chunks_folder, meeting_id, speaker_id_int)
 
-    # [TODO] redo with pysox?
-    sox_split_cmd_str = f'sox {combined_file_path} {chunk_file_path} rate 16k channels 1 trim 0 {chunk_length} : newfile : restart'
+    split_audio_file(combined_file_path, chunk_file_path, chunk_length)
 
-    #'sox -n -b 16 relative_path/output.wav synth 2.25 sine 300 vol 0.5'
+def mix_two_audio_files(file_1_cmd, file_2_cmd, output_file_path):
+  """
+  """
+  sox_mix_cmd_str = f'sox -V0 -m {file_1_cmd} {file_2_cmd} {output_file_path}'
 
-    os.system(sox_split_cmd_str)
+  os.system(sox_mix_cmd_str)
+
+
+def create_audio_mixture_with_other_noise(mix_output_folder: str, meeting_id: str, speaker_chunk: str,
+                                          noises_folder: str):
+  """
+  """
+  speaker_chunk_number = file_utils.get_speaker_chunk_number(speaker_chunk)
+
+  for noise_type in ['music', 'noise', 'speech']:
+    noise_folder = os.path.join(noises_folder, noise_type)
+    file_list = glob.glob(os.path.join(noise_folder, '*.wav'))
+    print(f'{noise_type} found {len(file_list)}')
+
+    noise_selected_chunks = random.sample(
+      file_list,
+      min(len(file_list), MAX_NUMBER_OF_OTHER_NOISES_MIXTURES_PER_SPEAKER_PER_TYPE)
+    )
+
+    for noise_chunk in noise_selected_chunks:
+      noise_name = file_utils.get_file_name(noise_chunk)
+
+      mix_file_path = file_utils.get_mix_file_name(
+        mix_output_folder, meeting_id, speaker_chunk_number, noise_name
+      )
+
+      mix_two_audio_files(speaker_chunk, f'-v 0.01 {noise_chunk}', mix_file_path)
+
+      # segment_start = random.randint(0, )
+
+      # sox_mix_cmd_str = f'sox -m {speaker_chunk} "| sox {file_2_path} -p trim {} {}" {output_file_path}'
+
+      # os.system(sox_mix_cmd_str)
+
 
 def create_audio_mixture(mix_output_folder: str, meeting_id: str, speaker_1_chunk: str,
                          speaker_2_chunk: str):
@@ -49,13 +106,16 @@ def create_audio_mixture(mix_output_folder: str, meeting_id: str, speaker_1_chun
     mix_output_folder, meeting_id, speaker_1_chunk_number, speaker_2_chunk_number
   )
 
-  sox_mix_cmd_str = f'sox -m {speaker_1_chunk} {speaker_2_chunk} {mix_file_path}'
+  mix_two_audio_files(speaker_1_chunk, f'-v 0.5 {speaker_2_chunk}', mix_file_path)
 
-  #print(sox_mix_cmd_str)
+  # sox_mix_cmd_str = f'sox -m {speaker_1_chunk} {speaker_2_chunk} {mix_file_path}'
 
-  os.system(sox_mix_cmd_str)  
+  # #print(sox_mix_cmd_str)
 
-def mix_audio_files(clean_audio_folder: str, meeting_id: str, mix_parent_folder: str):
+  # os.system(sox_mix_cmd_str) 
+
+def mix_audio_files(clean_audio_folder: str, meeting_id: str, mix_parent_folder: str,
+                    add_other_noise: bool, noises_folder: str):
   """
   """
   print(f'Starting mixing audio for meeting {meeting_id}...')
@@ -71,10 +131,10 @@ def mix_audio_files(clean_audio_folder: str, meeting_id: str, mix_parent_folder:
     speaker_1_chunks_folder = file_utils.get_clean_chunks_folder(clean_audio_folder, meeting_id, speaker_id_1)
     speaker_1_chunk_list = glob.glob(os.path.join(speaker_1_chunks_folder, '*.wav'))
 
-    speaker_1_selected_chunks = random.sample(speaker_1_chunk_list, min(len(speaker_1_chunk_list), 10))
-
-    #print('selected 1')
-    #print(speaker_1_selected_chunks)
+    speaker_1_selected_chunks = random.sample(
+      speaker_1_chunk_list,
+      min(len(speaker_1_chunk_list), MAX_NUMBER_OF_SPEAKER_CHUNKS)
+    )
 
     other_speakers_chunk_list = []
     for speaker_id_2 in range(number_of_speakers):
@@ -86,26 +146,12 @@ def mix_audio_files(clean_audio_folder: str, meeting_id: str, mix_parent_folder:
     for speaker_1_chunk in speaker_1_selected_chunks:
       speaker_2_chunk = random.choice(other_speakers_chunk_list)
 
-      #print('selected 2')
-      #print(speaker_2_chunk)
-
       create_audio_mixture(mix_output_folder, meeting_id, speaker_1_chunk, speaker_2_chunk)
       create_audio_mixture(mix_output_folder, meeting_id, speaker_2_chunk, speaker_1_chunk)
 
-      # [TODO] how to avoid creating the same mix file but consider both speakers as clean labels?
-      #create_audio_mixture(mix_output_folder, meeting_id, speaker_2_chunk, speaker_1_chunk)
-
-    # for speaker_id_2 in range(speaker_id_1 + 1, number_of_speakers):
-    #   speaker_2_chunks_folder = file_utils.get_clean_chunks_folder(clean_audio_folder, meeting_id, speaker_id_2)
-    #   speaker_2_chunk_list = glob.glob(os.path.join(speaker_2_chunks_folder, '*.wav'))      
-
-    #   for speaker_1_chunk in speaker_1_selected_chunks:
-    #     speaker_2_chunk = random.choice(speaker_2_chunk_list)
-
-    #     create_audio_mixture(mix_output_folder, meeting_id, speaker_1_chunk, speaker_2_chunk)
-
-    #     # [TODO] how to avoid creating the same mix file but consider both speakers as clean labels?
-    #     create_audio_mixture(mix_output_folder, meeting_id, speaker_2_chunk, speaker_1_chunk)
+      if add_other_noise:
+        print('Creating mixtures with other noises')
+        create_audio_mixture_with_other_noise(mix_output_folder, meeting_id, speaker_1_chunk, noises_folder)
 
   mixture_file_list = glob.glob(os.path.join(mix_output_folder, '*.wav'))
   print(f'Finished mixing audio files for the meeting {meeting_id}. \
@@ -115,7 +161,8 @@ def mix_audio_files(clean_audio_folder: str, meeting_id: str, mix_parent_folder:
 
 @file_utils.logger_decorator
 def process_meeting_folder(logs_folder: str, meeting_id: str, clean_audio_folder: str,
-                           chunk_length: int, mix_folder: str):
+                           chunk_length: int, mix_folder: str, add_other_noise: bool,
+                           noises_folder: str):
   """
   """
   try:
@@ -128,7 +175,7 @@ def process_meeting_folder(logs_folder: str, meeting_id: str, clean_audio_folder
       split_meeting_audio_files(clean_audio_folder, meeting_id, chunk_length)
 
       # Then mix different chunks.
-      mix_audio_files(clean_audio_folder, meeting_id, mix_folder)
+      mix_audio_files(clean_audio_folder, meeting_id, mix_folder, add_other_noise, noises_folder)
     return 1
   except Exception as e:
     print(f'Error has occurred: {e}')
@@ -147,6 +194,11 @@ def main():
   parser.add_argument('--mix-folder', default='./../data/processed/mix', type=str)
   parser.add_argument('--chunk-length', default=3, type=int) # in seconds
   parser.add_argument('--num-jobs', default=mp.cpu_count(), type=int)
+  parser.add_argument('--add-other-noise', dest='add_other_noise', action='store_true')
+  parser.add_argument('--no-other-noise', dest='add_other_noise', action='store_false')
+  parser.add_argument('--musan-folder', default='./../musan_corpus/musan', type=str)
+
+  parser.set_defaults(add_other_noise=True)
 
   cfg = parser.parse_args()
 
@@ -160,6 +212,16 @@ def main():
 
   file_utils.save_config(cfg.logs_folder, cfg.__dict__)
 
+  noises_folder = None
+  if cfg.add_other_noise:
+    print('Recreating noises folder')
+    noises_folder = os.path.join(cfg.musan_folder, 'mix')
+    file_utils.recreate_folder(noises_folder)
+
+    print('Splitting MUSAN files')
+    split_noises(cfg.musan_folder, noises_folder, cfg.chunk_length)
+    print('Successfully splitted MUSAN files')
+
   number_of_processors = mp.cpu_count()
   if cfg.num_jobs > number_of_processors:
     print(f'The number of jobs {cfg.num_jobs} is larger than the number of processors {number_of_processors}.')
@@ -172,21 +234,14 @@ def main():
   start_time = time.time()
   meeting_list_folders = os.listdir(cfg.clean_audio_folder)
   # [TODO] is there a better way to view the progress?
-  for meeting_id in tqdm(meeting_list_folders, total=len(meeting_list_folders)):
-    # if os.path.isdir(os.path.join(cfg.clean_audio_folder, obj)):
-    #   meeting_id = obj # {clean_audio_folder}/{meeting_id}/{speaker_id_int}/segments/{meeting_id}.combined-{speaker_id_int}.wav
-
-    #   # First split into chunks.
-    #   split_meeting_audio_files(cfg.clean_audio_folder, meeting_id, cfg.chunk_length)
-
-    #   # Then mix different chunks.
-    #   mix_audio_files(cfg.clean_audio_folder, meeting_id, cfg.mix_folder)
-    pool.apply_async(
-      process_meeting_folder,
-      args=(cfg.logs_folder, meeting_id, cfg.clean_audio_folder, cfg.chunk_length,
-            cfg.mix_folder),
-      callback=collect_split_mix_result
-    )
+  for meeting_id in meeting_list_folders:
+    if os.path.isdir(os.path.join(cfg.clean_audio_folder, meeting_id)):
+      pool.apply_async(
+        process_meeting_folder,
+        args=(cfg.logs_folder, meeting_id, cfg.clean_audio_folder, cfg.chunk_length,
+              cfg.mix_folder, cfg.add_other_noise, noises_folder),
+        callback=collect_split_mix_result
+      )
 
   pool.close()
   pool.join()
@@ -194,6 +249,10 @@ def main():
   end_time = time.time()
   print('The processing (splitting and mixture) has been finished.')
   print(f'Number of successfully processed meetings {number_of_processed_meetings} out of {len(meeting_list_folders)}.')
+  
+  mixture_file_list = glob.glob(os.path.join(cfg.mix_folder, '*.wav'))
+  print(f'{len(mixture_file_list)} new mixture files have been created.')
+
   print('Time spent: {:.2f} minutes'.format((end_time - start_time) / 60))    
 
 

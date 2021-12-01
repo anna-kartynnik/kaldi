@@ -7,7 +7,7 @@ import shutil
 import re
 import random
 import multiprocessing as mp
-from tqdm import tqdm
+#from tqdm import tqdm
 import time
 
 import xml.etree.ElementTree as ET
@@ -475,14 +475,15 @@ def main():
   start_time = time.time()
   meeting_list_folders = os.listdir(cfg.audio_folder)
   # [TODO] is there a better way to view the progress?
-  for meeting_id in tqdm(meeting_list_folders, total=len(meeting_list_folders)):
-    pool.apply_async(
-      process_meeting_folder,
-      args=(cfg.logs_folder, meeting_id, cfg.audio_folder, cfg.output_folder,
-            cfg.annotations_folder, cfg.offset, cfg.enrollment_duration_threshold,
-            cfg.chunk_length, cfg.combine),
-      callback=collect_extraction_result
-    )
+  for meeting_id in meeting_list_folders:
+    if os.path.isdir(os.path.join(cfg.audio_folder, meeting_id)):
+      pool.apply_async(
+        process_meeting_folder,
+        args=(cfg.logs_folder, meeting_id, cfg.audio_folder, cfg.output_folder,
+              cfg.annotations_folder, cfg.offset, cfg.enrollment_duration_threshold,
+              cfg.chunk_length, cfg.combine),
+        callback=collect_extraction_result
+      )
 
   pool.close()
   pool.join()

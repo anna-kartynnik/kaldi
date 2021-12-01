@@ -42,6 +42,7 @@ def get_args():
     libs.nnet3.train.common.CommonParser.parser.
     See steps/libs/nnet3/train/common.py
     """
+    
 
     parser = argparse.ArgumentParser(
         description="""Trains a feed forward raw DNN (without transition model)
@@ -113,6 +114,9 @@ def get_args():
     parser.add_argument("--dir", type=str, required=True,
                         help="Directory to store the models and "
                         "all other files.")
+    parser.add_argument("--report-key", type=str, required=False,
+                        default="accuracy",
+                        help="Key for generating final report")
 
     print(' '.join(sys.argv))
     print(sys.argv)
@@ -415,7 +419,8 @@ def train(args, run_opts):
                 image_augmentation_opts=args.image_augmentation_opts,
                 use_multitask_egs=use_multitask_egs,
                 backstitch_training_scale=args.backstitch_training_scale,
-                backstitch_training_interval=args.backstitch_training_interval)
+                backstitch_training_interval=args.backstitch_training_interval,
+                compute_accuracy=(args.report_key == "accuracy"))
 
             if args.cleanup:
                 # do a clean up everything but the last 2 models, under certain
@@ -447,7 +452,8 @@ def train(args, run_opts):
                 minibatch_size_str=args.minibatch_size, run_opts=run_opts,
                 get_raw_nnet_from_am=False,
                 max_objective_evaluations=args.max_objective_evaluations,
-                use_multitask_egs=use_multitask_egs)
+                use_multitask_egs=use_multitask_egs,
+                compute_accuracy=(args.report_key == "accuracy"))
         else:
             common_lib.force_symlink("{0}.raw".format(num_iters),
                                      "{0}/final.raw".format(args.dir))
@@ -480,14 +486,15 @@ def train(args, run_opts):
         args.dir), get_raw_nnet_from_am=False)
     if 'output' in outputs_list:
         [report, times, data] = nnet3_log_parse.generate_acc_logprob_report(
-            args.dir)
+            args.dir, key=args.report_key)
         if args.email is not None:
             common_lib.send_mail(report, "Update : Expt {0} : "
                                          "complete".format(args.dir),
                                  args.email)
 
-        with open("{dir}/accuracy.{output_name}.report".format(dir=args.dir,
-                                                               output_name="output"),
+        with open("{dir}/{key}.{output_name}.report".format(dir=args.dir,
+                                                            key=args.report_key,
+                                                            output_name="output"),
                   "w") as f:
             f.write(report)
 

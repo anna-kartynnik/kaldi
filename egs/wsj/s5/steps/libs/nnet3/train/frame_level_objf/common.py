@@ -181,7 +181,8 @@ def train_one_iteration(dir, iter, srand, egs_dir,
                         shrinkage_value=1.0, dropout_edit_string="",  train_opts="",
                         get_raw_nnet_from_am=True, use_multitask_egs=False,
                         backstitch_training_scale=0.0, backstitch_training_interval=1,
-                        compute_per_dim_accuracy=False):
+                        compute_per_dim_accuracy=False,
+                        compute_accuracy=True):
     """ Called from steps/nnet3/train_*.py scripts for one iteration of neural
     network training
 
@@ -225,7 +226,8 @@ def train_one_iteration(dir, iter, srand, egs_dir,
         run_opts=run_opts,
         get_raw_nnet_from_am=get_raw_nnet_from_am,
         use_multitask_egs=use_multitask_egs,
-        compute_per_dim_accuracy=compute_per_dim_accuracy)
+        compute_per_dim_accuracy=compute_per_dim_accuracy,
+        compute_accuracy=compute_accuracy)
 
     if iter > 0:
         # Runs in the background
@@ -380,7 +382,8 @@ def compute_preconditioning_matrix(dir, egs_dir, num_lda_jobs, run_opts,
 def compute_train_cv_probabilities(dir, iter, egs_dir, run_opts,
                                    get_raw_nnet_from_am=True,
                                    use_multitask_egs=False,
-                                   compute_per_dim_accuracy=False):
+                                   compute_per_dim_accuracy=False,
+                                   compute_accuracy=True):
     if get_raw_nnet_from_am:
         model = "{dir}/{iter}.mdl".format(dir=dir, iter=iter)
     else:
@@ -402,13 +405,14 @@ def compute_train_cv_probabilities(dir, iter, egs_dir, run_opts,
 
     common_lib.background_command(
         """ {command} {dir}/log/compute_prob_valid.{iter}.log \
-                nnet3-compute-prob "{model}" \
+                nnet3-compute-prob --compute-accuracy={compute_accuracy} "{model}" \
                 "ark,bg:nnet3-copy-egs {multitask_egs_opts} \
                     {egs_rspecifier} ark:- | \
                     nnet3-merge-egs --minibatch-size=1:64 ark:- \
                     ark:- |" """.format(command=run_opts.command,
                                         dir=dir,
                                         iter=iter,
+                                        compute_accuracy='true' if compute_accuracy else 'false',
                                         egs_rspecifier=egs_rspecifier,
                                         opts=' '.join(opts), model=model,
                                         multitask_egs_opts=multitask_egs_opts))
@@ -423,13 +427,14 @@ def compute_train_cv_probabilities(dir, iter, egs_dir, run_opts,
 
     common_lib.background_command(
         """{command} {dir}/log/compute_prob_train.{iter}.log \
-                nnet3-compute-prob {opts} "{model}" \
+                nnet3-compute-prob --compute-accuracy={compute_accuracy} {opts} "{model}" \
                 "ark,bg:nnet3-copy-egs {multitask_egs_opts} \
                     {egs_rspecifier} ark:- | \
                     nnet3-merge-egs --minibatch-size=1:64 ark:- \
                     ark:- |" """.format(command=run_opts.command,
                                         dir=dir,
                                         iter=iter,
+                                        compute_accuracy='true' if compute_accuracy else 'false',
                                         egs_rspecifier=egs_rspecifier,
                                         opts=' '.join(opts), model=model,
                                         multitask_egs_opts=multitask_egs_opts))
@@ -479,7 +484,8 @@ def combine_models(dir, num_iters, models_to_combine, egs_dir,
                    chunk_width=None, get_raw_nnet_from_am=True,
                    max_objective_evaluations=30,
                    use_multitask_egs=False,
-                   compute_per_dim_accuracy=False):
+                   compute_per_dim_accuracy=False,
+                   compute_accuracy=True):
     """ Function to do model combination
 
     In the nnet3 setup, the logic
@@ -550,13 +556,15 @@ def combine_models(dir, num_iters, models_to_combine, egs_dir,
         compute_train_cv_probabilities(
             dir=dir, iter='combined', egs_dir=egs_dir,
             run_opts=run_opts, use_multitask_egs=use_multitask_egs,
-            compute_per_dim_accuracy=compute_per_dim_accuracy)
+            compute_per_dim_accuracy=compute_per_dim_accuracy,
+            compute_accuracy=compute_accuracy)
     else:
         compute_train_cv_probabilities(
             dir=dir, iter='final', egs_dir=egs_dir,
             run_opts=run_opts, get_raw_nnet_from_am=False,
             use_multitask_egs=use_multitask_egs,
-            compute_per_dim_accuracy=compute_per_dim_accuracy)
+            compute_per_dim_accuracy=compute_per_dim_accuracy,
+            compute_accuracy=compute_accuracy)
 
 
 def get_realign_iters(realign_times, num_iters,

@@ -5,7 +5,7 @@
 #
 
 
-config_nnet=0
+config_nnet=1
 # make_egs=0
 # combine_egs=1
 train_nnet=1
@@ -78,40 +78,56 @@ if [ "$config_nnet" -eq "1" ]; then
     mkdir -p $exp_dir/egs
 
     #feat_dim=`feat-to-dim scp:$data_dir/feats.scp -`
-    feat_dim=`feat-to-dim scp:$targets_scp -`
+    mfcc_dim=`feat-to-dim scp:$targets_scp -`
+    fbank_dim=128
+    feat_dim=$fbank_dim
     num_targets=$feat_dim
 
     #hidden_dim=$hidden_dim
     xvector_dim=512
     embedding_dim=128
-    lstm_output_dim=400
-    fc_dim=$feat_dim
-    input_dim=$(($feat_dim + $xvector_dim))
+    lstm_output_dim=200
+    fc1_dim=128
+    fc_dim=$mfcc_dim
+    input_dim=$(($mfcc_dim + $xvector_dim))
     # The following definition is for the voice filter model
     cat <<EOF > $exp_dir/configs/network.xconfig
 input dim=$input_dim name=input
 
-dim-range-component name=fbanks input=input dim=$feat_dim dim-offset=0
-dim-range-component name=speaker_embedding input=input dim=$xvector_dim dim-offset=$feat_dim
+dim-range-component name=mfcc input=input dim=$mfcc_dim dim-offset=0
+dim-range-component name=speaker_embedding input=input dim=$xvector_dim dim-offset=$mfcc_dim
 
-sigmoid-layer name=embedding input=speaker_embedding dim=$embedding_dim 
+# this takes the MFCCs and generates filterbank coefficients. The MFCCs
+# are more compressible so we prefer to dump the MFCCs to disk rather
+# than filterbanks.
+idct-layer name=idct input=mfcc dim=$feat_dim cepstral-lifter=22 affine-transform-file=$exp_dir/configs/idct.mat
+batchnorm-component name=batchnorm0 input=idct
 
-conv-relu-batchnorm-layer name=conv1 input=fbanks height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-3,-2,-1,0,1,2,3 time-offsets=0
-conv-relu-batchnorm-layer name=conv2 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=0 time-offsets=-3,-2,-1,0,1,2,3
-conv-relu-batchnorm-layer name=conv3 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-2,-1,0,1,2
-conv-relu-batchnorm-layer name=conv4 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-4,-2,0,2,4
-conv-relu-batchnorm-layer name=conv5 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-8,-4,0,4,8
-conv-relu-batchnorm-layer name=conv6 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-16,-8,0,8,16
-conv-relu-batchnorm-layer name=conv7 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-32,-16,0,16,32
-conv-relu-batchnorm-layer name=conv8 height-in=$feat_dim height-out=$feat_dim num-filters-out=8 height-offsets=0 time-offsets=0
+batchnorm-layer name=embedding input=speaker_embedding dim=$embedding_dim 
 
-lstm-layer name=lstmforward input=Append(conv8, embedding) cell-dim=$lstm_output_dim delay=-1
-lstm-layer name=lstmbackward input=Append(conv8, embedding) cell-dim=$lstm_output_dim delay=1
+#conv-relu-batchnorm-layer name=conv1 input=batchnorm0 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-3,-2,-1,0,1,2,3 time-offsets=0
+#conv-relu-batchnorm-layer name=conv2 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=0 time-offsets=-3,-2,-1,0,1,2,3
+#conv-relu-batchnorm-layer name=conv3 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-2,-1,0,1,2
+#conv-relu-batchnorm-layer name=conv4 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-4,-2,0,2,4
+# conv-relu-batchnorm-layer name=conv5 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-8,-4,0,4,8
+# conv-relu-batchnorm-layer name=conv6 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-16,-8,0,8,16
+# conv-relu-batchnorm-layer name=conv7 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-32,-16,0,16,32
+#conv-relu-batchnorm-layer name=conv8 height-in=$feat_dim height-out=$feat_dim num-filters-out=8 height-offsets=0 time-offsets=0
+
+#lstm-layer name=lstmforward input=Append(conv8, embedding) cell-dim=$lstm_output_dim delay=-1
+#lstm-layer name=lstmbackward input=Append(conv8, embedding) cell-dim=$lstm_output_dim delay=1
+
+lstm-layer name=lstmforward input=Append(batchnorm0, embedding) cell-dim=$lstm_output_dim delay=-1
+lstm-layer name=lstmbackward input=Append(batchnorm0, embedding) cell-dim=$lstm_output_dim delay=1
 
 relu-layer name=lstmrelu input=Append(lstmforward, lstmbackward)
 
-relu-layer name=fc1 input=lstmrelu dim=$fc_dim
+relu-layer name=fc1 input=lstmrelu dim=$fc1_dim
 sigmoid-layer name=fc2 input=fc1 dim=$fc_dim
+
+# component name=elementwiseproduct type=ElementwiseProductComponent input-dim=$(($fc_dim * 2)) output-dim=$fc_dim
+# component-node name=elementwiseproduct component=elementwiseproduct  input=Append(mfcc,fc2.sigmoid)
+
 output name=output dim=$fc_dim objective-type=quadratic
 EOF
     
@@ -131,6 +147,19 @@ EOF
         --config-dir $exp_dir/configs/ #\
     #    --nnet-edits="rename-node old-name=output-0 new-name=output"
 
+    # In order to add element-wise product, we need to modify the nnet config file generated just now.
+    # [TODO] Ideally, it's better to add and handle such a layer (fixed layer) in steps/nnet3/xconfig_to_configs.py.
+    nnet_config_file=$exp_dir/configs/final.config
+    # Save the last `output` node.
+    output_config=`tail $nnet_config_file -n 1`
+    # Remove last `output` node.
+    sed -i '$d' $nnet_config_file
+    # Add element-wise product component.
+    echo "component name=elementwiseproduct type=ElementwiseProductComponent input-dim=$(($fc_dim * 2)) output-dim=$fc_dim" >> $nnet_config_file
+    echo "component-node name=elementwiseproduct component=elementwiseproduct  input=Append(mfcc,fc2.sigmoid)" >> $nnet_config_file
+    #echo "$output_config" >> $nnet_config_file
+    echo "output-node name=output input=elementwiseproduct objective=quadratic" >> $nnet_config_file
+    
 fi
 
 # relu-renorm-layer name=tdnn1 input=Append(input@-2,input@-1,input,input@1,input@2) dim=$hidden_dim
@@ -222,22 +251,23 @@ if [ "$train_nnet" -eq "1" ]; then
     steps/nnet3/train_raw_dnn.py \
         --stage=-5 \
         --cmd="$cmd" \
-        --trainer.num-epochs $num_epochs \
+        --trainer.num-epochs=$num_epochs \
         --trainer.optimization.num-jobs-initial=1 \
         --trainer.optimization.num-jobs-final=1 \
         --trainer.optimization.initial-effective-lrate=0.0015 \
         --trainer.optimization.final-effective-lrate=0.00015 \
-        --trainer.optimization.minibatch-size=128,23 \
+        --trainer.optimization.minibatch-size=8 \
         --trainer.samples-per-iter=50 \
         --trainer.max-param-change=2.0 \
         --trainer.srand=0 \
         --feat.cmvn-opts="--norm-means=false --norm-vars=false" \
-        --feat-dir $data_dir \
-        --use-dense-targets true \
-        --targets-scp $targets_scp \
-        --cleanup.remove-egs true \
-        --use-gpu false \
+        --feat-dir=$data_dir \
+        --use-dense-targets=true \
+        --targets-scp=$targets_scp \
+        --cleanup.remove-egs=true \
+        --use-gpu=false \
         --dir=$exp_dir  \
+        --report-key="objective" \
         || exit 1;
     
     #   --egs.dir $master_egs_dir \
@@ -260,6 +290,7 @@ if [ "$train_nnet" -eq "1" ]; then
     echo "### ============== ###"
 
 fi
+
 
 
 
