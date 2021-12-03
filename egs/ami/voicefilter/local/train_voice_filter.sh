@@ -57,8 +57,7 @@ targets_scp=$2 # like data/train_orig/clean/feats.scp
 exp_dir=$3
 #master_egs_dir=$exp_dir/egs
 
-
-
+mkdir -p $exp_dir
 
 
 if [ "$config_nnet" -eq "1" ]; then
@@ -256,8 +255,9 @@ if [ "$train_nnet" -eq "1" ]; then
         --trainer.optimization.num-jobs-final=1 \
         --trainer.optimization.initial-effective-lrate=0.0015 \
         --trainer.optimization.final-effective-lrate=0.00015 \
-        --trainer.optimization.minibatch-size=8 \
-        --trainer.samples-per-iter=50 \
+        --trainer.optimization.minibatch-size=128 \
+        --egs.frames-per-eg=4 \
+        --trainer.samples-per-iter=5000 \
         --trainer.max-param-change=2.0 \
         --trainer.srand=0 \
         --feat.cmvn-opts="--norm-means=false --norm-vars=false" \
@@ -265,7 +265,7 @@ if [ "$train_nnet" -eq "1" ]; then
         --use-dense-targets=true \
         --targets-scp=$targets_scp \
         --cleanup.remove-egs=true \
-        --use-gpu=false \
+        --use-gpu=yes \
         --dir=$exp_dir  \
         --report-key="objective" \
         || exit 1;

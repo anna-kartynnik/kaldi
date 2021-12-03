@@ -19,7 +19,7 @@ cache_capacity=64 # Cache capacity for x-vector extractor
 chunk_size=-1     # The chunk size over which the embedding is extracted.
                   # If left unspecified, it uses the max_chunk_size in the nnet
                   # directory.
-use_gpu=false
+use_gpu="no"
 stage=0
 
 echo "$0 $@"  # Print the command line for logging
@@ -33,7 +33,7 @@ if [ $# != 3 ]; then
   echo "main options (for others, see top of script file)"
   echo "  --config <config-file>                           # config containing options"
   echo "  --cmd (utils/run.pl|utils/queue.pl <queue opts>) # how to run jobs."
-  echo "  --use-gpu <bool|false>                           # If true, use GPU."
+  echo "  --use-gpu <string|no>                            # Unless 'no', use GPU."
   echo "  --nj <n|30>                                      # Number of jobs"
   echo "  --stage <stage|0>                                # To control partial reruns"
   echo "  --cache-capacity <n|64>                          # To speed-up xvector extraction"
@@ -77,10 +77,10 @@ feat="ark:apply-cmvn-sliding --norm-vars=false --center=true --cmn-window=300 sc
 
 if [ $stage -le 0 ]; then
   echo "$0: extracting xvectors from nnet"
-  if $use_gpu; then
+  if [ $use_gpu != "false" ] && [ $use_gpu != "no" ]; then
     for g in $(seq $nj); do
       $cmd --gpu 1 ${dir}/log/extract.$g.log \
-        nnet3-xvector-compute --use-gpu=yes --min-chunk-size=$min_chunk_size --chunk-size=$chunk_size --cache-capacity=${cache_capacity} \
+        nnet3-xvector-compute --use-gpu=$use_gpu --min-chunk-size=$min_chunk_size --chunk-size=$chunk_size --cache-capacity=${cache_capacity} \
         "$nnet" "`echo $feat | sed s/JOB/$g/g`" ark,scp:${dir}/xvector.$g.ark,${dir}/xvector.$g.scp || exit 1 &
     done
     wait
