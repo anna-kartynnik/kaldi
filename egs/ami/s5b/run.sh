@@ -17,7 +17,7 @@ mic=ihm
 
 # Train systems,
 nj=30 # number of parallel jobs,
-stage=1
+stage=16
 . utils/parse_options.sh
 
 base_mic=$(echo $mic | sed 's/[0-9]//g') # sdm, ihm or mdm
@@ -169,12 +169,95 @@ if [ $stage -le 11 ]; then
   local/chain/run_tdnn.sh $ali_opt --mic $mic
 fi
 
-if [ $stage -le 12 ]; then
+#if [ $stage -le 12 ]; then
 #  the following shows how you would run the nnet3 system; we comment it out
 #  because it's not as good as the chain system.
 #  ali_opt=
 #  [ "$mic" != "ihm" ] && ali_opt="--use-ihm-ali true"
 # local/nnet3/run_tdnn.sh $ali_opt --mic $mic
+#fi
+
+if [ $stage -le 13 ]; then
+  echo "Preraring enrollment data for dev and eval."
+  temp_dir=data/temp
+  mkdir -p $temp_dir
+  enrollment_dir=../voicefilter/data/audio/clean
+  for dset in dev "eval"; do
+    mkdir -p data/enrollment/$dset
+    awk '{print $1}' data/$mic/$dset/feats.scp > $temp_dir/uttids
+    awk '{print $1}' data/$mic/$dset/feats.scp | \
+      perl -ne 'split; $_ =~ m/AMI_(.*)_H0([0-4])_.*/; print "/$1/$2/enrollment/$1.enrollment-$2.wav\n"' | \
+      awk -v folder=$enrollment_dir '{print folder $1}' - | \
+      paste $temp_dir/uttids - > $temp_dir/"$dset"_enrollment_wav_temp.scp
+
+    awk '{print $1" sox -c 1 -t wavpcm -e signed-integer "$2" -t wavpcm - |"}' $temp_dir/"$dset"_enrollment_wav_temp.scp > $temp_dir/"$dset"_enrollment_wav.scp
+    for f in spk2utt utt2spk; do
+      cp data/$mic/$dset/$f data/enrollment/$dset/$f
+    done
+    cp $temp_dir/"$dset"_enrollment_wav.scp data/enrollment/$dset/wav.scp
+  done
+  echo "Finished data preparation for enrollment"
+fi
+#stage=100500
+
+if [ $stage -le 14 ]; then
+  echo "Embedding preparation for dev eval."
+  mkdir -p data/xvectors
+  #emb_cmd=run.pl
+  for dset in dev "eval"; do
+    steps/make_mfcc_pitch.sh --write-utt2num-frames true --mfcc-config ../voicefilter/conf/xvectors/mfcc.conf \
+      --pitch-config ../voicefilter/conf/xvectors/pitch.conf --nj 10 --cmd "$train_cmd" \
+      data/enrollment/$dset
+
+    utils/fix_data_dir.sh data/enrollment/$dset
+
+    ../voicefilter/sid/compute_vad_decision.sh --nj 10 --cmd "$train_cmd" \
+      --vad-config ../voicefilter/conf/xvectors/vad.conf data/enrollment/$dset
+
+    ../voicefilter/sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd" --nj 10 \
+      ../voicefilter/voxceleb_trained data/enrollment/$dset data/xvectors/$dset 
+  done
+fi
+#stage=100500
+
+if [ $stage -le 15 ]; then
+  mkdir -p logs_vf
+  features_dir=data/with_embedding
+  for dset in dev "eval"; do
+    mkdir -p $features_dir/$dset
+    ../voicefilter/local/append_noisy_and_xvectors.sh data/$mic/$dset data/xvectors/$dset \
+      $features_dir/$dset logs_vf --cmd "$train_cmd"
+    echo "appended"
+    mkdir -p "$dset"_vf
+    cp -r data/$mic/$dset data/$mic/"$dset"_vf
+
+    utils/fix_data_dir.sh $features_dir/$dset
+    ../voicefilter/local/evaluate.sh $features_dir/$dset ../voicefilter/exp4 data/$mic/"$dset"_vf \
+      --cmd "$decode_cmd" --nj 15 --use-gpu yes || exit 1;
+    echo "used vf model"
+    cp data/$mic/"$dset"_vf/output.scp data/$mic/"$dset"_vf/feats.scp
+  done
+fi
+
+if [ $stage -le 16 ]; then
+  #cp -r data/$mic/train_cleaned data/$mic/train_cleaned_vf
+
+  for dset in dev "eval"; do
+    utils/fix_data_dir.sh data/$mic/"$dset"_vf
+    steps/make_mfcc.sh --nj 8 --mfcc-config conf/mfcc_hires80.conf \
+      --cmd run.pl data/$mic/"$dset"_vf_hires
+    steps/compute_cmvn_stats.sh data/$mic/"$dset"_vf_hires
+    utils/fix_data_dir.sh data/$mic/"$dset"_vf_hires
+
+    steps/online/nnet2/extract_ivectors_online.sh --cmd run.pl --nj 8 \
+      data/$mic/"$dset"_vf_hires exp/$mic/nnet3_cleaned/extractor \
+      exp/$mic/nnet3_cleaned/ivectors_"$dset"_vf_hires
+  done
+  for dset in dev "eval"; do
+    #api_opt=
+    #[ "$mic" != "ihm" ] && ali_opt="--use-ihm-ali true"
+    local/chain/evaluate_vf.sh "$dset"_vf --mic $mic
+  done
 fi
 
 exit 0

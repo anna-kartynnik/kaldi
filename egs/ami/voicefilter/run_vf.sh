@@ -3,22 +3,24 @@
 . ./cmd.sh
 . ./path.sh
 
+
 MUSAN_ROOT="musan_corpora"
-AMI_AUDIO_DIR="experiments/amicorpus"
-AMI_ANNOTATIONS_DIR="experiments/annotations"
-NOISY_AUDIO_DIR="data/audio/mix"
-CLEAN_AUDIO_DIR="data/audio/clean"
+AMI_AUDIO_DIR="amicorpus"
+AMI_ANNOTATIONS_DIR="annotations"
+NOISY_AUDIO_DIR="data2/audio/mix"
+CLEAN_AUDIO_DIR="data2/audio/clean"
 #"experiments/data/clean"
 #"data/processed/clean"
-ENROLLMENT_DIR="data/audio/clean"
+ENROLLMENT_DIR="data2/audio/clean"
 EMBEDDING_NNET_DIR="voxceleb_trained"
-PREPARED_DATA_DIR="data/prepared2"
-DATA_DIR="data/processed2"
+PREPARED_DATA_DIR="data2/prepared"
+DATA_DIR="data2/processed"
 FEATURES_DIR=$DATA_DIR/noisy_embedding
-LOGS_DIR="logs"
+LOGS_DIR="logs2"
 VF_NNET_DIR="exp2"
 # Chunk length for voice filter (in seconds)
 CHUNK_LENGTH=3
+
 
 stage=0
 
@@ -71,8 +73,8 @@ fi
 # Data splitting to train/test datasets.
 if [ $stage -le 3 ]; then
   # Combine dev and eval meetings to use them as a test set.
-  cat local/split_dev.orig local/split_eval.orig | sort -u > local/split_test.orig
-  # Here the data will be splitted into train/test sets.
+  #cat local/split_dev.orig local/split_eval.orig | sort -u > local/split_test.orig
+  # Here the data will be splitted into train/dev/eval sets.
   for audio_type in noisy clean enrollment; do
     local/split_data.sh $PREPARED_DATA_DIR/$audio_type $DATA_DIR/$audio_type local
   done
@@ -81,15 +83,16 @@ fi
 
 # Embeddings preparation.
 if [ $stage -le 4 ]; then
-  for dset in train test; do
+  for dset in train dev "eval"; do
     steps/make_mfcc_pitch.sh --write-utt2num-frames true --mfcc-config conf/xvectors/mfcc.conf \
-      --pitch-config conf/xvectors/pitch.conf --nj 2 --cmd "$train_cmd" $DATA_DIR/enrollment/$dset
+      --pitch-config conf/xvectors/pitch.conf --nj 8 --cmd "$train_cmd --mem 4G" $DATA_DIR/enrollment/$dset
+    utils/fix_data_dir.sh $DATA_DIR/enrollment/$dset
 
-    sid/compute_vad_decision.sh --nj 2 --cmd "$train_cmd" --vad-config conf/xvectors/vad.conf \
+    sid/compute_vad_decision.sh --nj 8 --cmd "$train_cmd --mem 4G" --vad-config conf/xvectors/vad.conf \
       $DATA_DIR/enrollment/$dset
 
-    sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd" --nj 2 \
-      $EMBEDDING_NNET_DIR $DATA_DIR/enrollment/$dset \
+    sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 4G" --nj 8 \
+      --use-gpu wait $EMBEDDING_NNET_DIR $DATA_DIR/enrollment/$dset \
       $DATA_DIR/xvectors/$dset
   done
 fi
@@ -97,35 +100,40 @@ fi
 
 # Feature extraction.
 if [ $stage -le 5 ]; then
-  for dset in train test; do
+  for dset in dev "eval"; do
     for audio_type in noisy clean; do
       #steps/make_fbank.sh --nj 2 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
-      steps/make_mfcc.sh --nj 2 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
-      steps/compute_cmvn_stats.sh $DATA_DIR/$audio_type/$dset
+      steps/make_mfcc.sh --nj 15 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
+      #steps/compute_cmvn_stats.sh $DATA_DIR/$audio_type/$dset
       utils/fix_data_dir.sh $DATA_DIR/$audio_type/$dset
+
+      #steps/make_fbank.sh --nj 15 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
     done
 
     mkdir -p $FEATURES_DIR/$dset || exit 1;
     local/append_noisy_and_xvectors.sh $DATA_DIR/noisy/$dset $DATA_DIR/xvectors/$dset $FEATURES_DIR/$dset \
-      $LOGS_DIR --cmd "$train_cmd"
+      $LOGS_DIR --cmd "$train_cmd" --nj 15
 
   done
 fi
-#stage=100500
+stage=100500
 
 # Train nnet
 if [ $stage -le 6 ]; then
-  local/train_voice_filter.sh $FEATURES_DIR/train $DATA_DIR/clean/train/feats.scp $VF_NNET_DIR --cmd "$train_cmd"
+  utils/fix_data_dir.sh $FEATURES_DIR/train
+  local/train_voice_filter.sh $FEATURES_DIR/train $DATA_DIR/clean/train/feats.scp $VF_NNET_DIR \
+    --cmd "$train_cmd"
 fi
-stage=100500
+#stage=100500
 
 # Evaluate
 if [ $stage -le 7 ]; then
-  #local/evaluate.sh $FEATURES_DIR/test $VF_NNET_DIR $VF_NNET_DIR/output --cmd "$decode_cmd" --nj 2 || exit 1;
-  local/evaluate.sh $FEATURES_DIR/train $VF_NNET_DIR $VF_NNET_DIR/output --cmd "$decode_cmd" --nj 2 || exit 1;
+  for dset in dev "eval"; do
+    utils/fix_data_dir.sh $FEATURES_DIR/$dset
+    local/evaluate.sh $FEATURES_DIR/$dset $VF_NNET_DIR $VF_NNET_DIR/output \
+      --use-gpu yes --cmd "$decode_cmd" --nj 10 || exit 1;
+    #local/evaluate.sh $FEATURES_DIR/train $VF_NNET_DIR $VF_NNET_DIR/output --cmd "$decode_cmd" --nj 2 || exit 1;
+  done
 fi
 
-# Evaluate
-# if [ $stage -le 8 ]; then
-#   wav-copy ark:exp2/output/output.1.ark:23 exp2/output/AMI_ES2002a_H0001_3012.wav
-# fi
+

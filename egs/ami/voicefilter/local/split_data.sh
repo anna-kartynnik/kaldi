@@ -35,7 +35,7 @@ LOCAL_OUTPUT_DIR=$OUTPUT_DIR/temp
 awk '{print $1}' $DATA_DIR/wav.scp | \
   perl -ne 'split; $_ =~ m/AMI_(.*)_H.*/; print "$1 $_"' > $LOCAL_OUTPUT_DIR/meetings2utt
 
-for dset in train test; do
+for dset in train dev "eval"; do
   mkdir -p $OUTPUT_DIR/$dset
 
   join $SPLITS_DIR/split_$dset.orig $LOCAL_OUTPUT_DIR/meetings2utt | \
