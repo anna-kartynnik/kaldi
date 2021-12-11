@@ -4,27 +4,21 @@ import numpy as np
 import argparse
 import os
 
-def build_matrices(file_path):
-  matrices_dict = {}
+import tqdm
 
+def generate_matrices(file_path):
   utt_id = None
-  matrix_str = ''
+  matrix = []
   with open(file_path, 'r') as f:
-    lines = f.readlines()
-    print(len(lines))
-    for line in lines:
+    for line in f:
       if '[' in line:
         utt_id = line.split()[0]
-        matrix_str = ''
+        matrix = []
       elif ']' in line:
-        matrix_str += ','.join(line.strip().split()[0:-1])
-        matrices_dict[utt_id] = np.matrix(matrix_str)
+        matrix.append([float(value) for value in line.strip().split()[0:-1]])
+        yield utt_id, np.array(matrix)
       else:
-        matrix_str += ','.join(line.strip().split())
-        matrix_str += ';'
-    print(len(matrices_dict.keys()))
-
-  return matrices_dict
+        matrix.append([float(value) for value in line.strip().split()])
 
 def main():
  
@@ -34,22 +28,21 @@ def main():
 
   cfg = parser.parse_args()
 
-  predictions = build_matrices(os.path.join(cfg.predictions_dir, 'feats_matrix'))
-  ground_truth = build_matrices(os.path.join(cfg.ground_truth_dir, 'feats_matrix'))
+  predictions = generate_matrices(os.path.join(cfg.predictions_dir, 'feats_matrix'))
+  ground_truth = generate_matrices(os.path.join(cfg.ground_truth_dir, 'feats_matrix'))
 
   output_dir = cfg.predictions_dir
 
   with open(os.path.join(output_dir, 'objective_report'), 'w') as f:
     f.write('utt_id\ttotal_mse\tmax_mse_per_frame\tmin_mse_per_frame\tmax_mse_per_feature\tmin_mse_per_feature\tmse_per_frame\tmse_per_feature\n')
-    for utt_id, matrix in predictions.items():
-      mse_per_feature = (np.square(matrix - ground_truth[utt_id])).mean(axis=0)
-      mse_per_frame = (np.square(matrix - ground_truth[utt_id])).mean(axis=1)
-      #print(mse_per_frame.shape)
-      mse = (np.square(matrix - ground_truth[utt_id])).mean(axis=None)
-      f.write(f'{utt_id}\t{mse}\t{np.max(mse_per_frame)}\t{np.min(mse_per_frame)}\t \
+    for ((utt_id_pred, matrix_pred), (utt_id_gt, matrix_gt)) in tqdm.tqdm(zip(predictions, ground_truth)):
+      assert utt_id_pred == utt_id_gt
+      squared_diff = np.square(matrix_pred - matrix_gt)
+      mse_per_feature = squared_diff.mean(axis=0)
+      mse_per_frame = squared_diff.mean(axis=1)
+      mse = squared_diff.mean(axis=None)
+      f.write(f'{utt_id_pred}\t{mse}\t{np.max(mse_per_frame)}\t{np.min(mse_per_frame)}\t \
         {np.max(mse_per_feature)}\t{np.min(mse_per_feature)}\n')
-        #{mse_per_frame.flatten().tolist()}\t \
-        #{mse_per_feature.flatten().tolist()\n}
 
 
 if __name__ == "__main__":
