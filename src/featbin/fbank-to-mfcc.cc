@@ -113,6 +113,11 @@ int main(int argc, char* argv[]) {
       const std::string utt = kaldi_reader.Key();
       const Matrix<BaseFloat> &fbanks = kaldi_reader.Value();
 
+      if (fbanks.NumCols() != num_bins) {
+        KALDI_ERR << utt << ": got " << fbanks.NumCols() << " filterbanks"
+                  << ", but --num-mel-bins is " << num_bins;
+      }
+
       Matrix<BaseFloat> mfccs(fbanks.NumRows(), num_ceps);
       computer.Compute(fbanks, &mfccs);
 
