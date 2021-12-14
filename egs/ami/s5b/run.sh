@@ -219,44 +219,90 @@ if [ $stage -le 14 ]; then
   done
 fi
 #stage=100500
-
+features_dir=data/with_embedding
 if [ $stage -le 15 ]; then
   mkdir -p logs_vf
-  features_dir=data/with_embedding
-  for dset in dev "eval"; do
+  #features_dir=data/with_embedding
+  #for dset in dev "eval"; do
+  for dset in dev; do
+    # Create fbanks
+    mkdir -p data/$mic/"$dset"_fbank
+    for f in glm reco2file_and_channel segments spk2utt stm text utt2dur utt2num_frames utt2spk wav.scp; do
+      cp data/$mic/$dset/$f data/$mic/"$dset"_fbank/$f
+    done
+    # We use --compress false since eventually we convert these fbanks to mfcc after applying VF model.
+    steps/make_fbank.sh --fbank-config ../voicefilter/conf/fbank.conf --nj 8 --compress false --cmd "$train_cmd" data/$mic/"$dset"_fbank
+    utils/fix_data_dir.sh data/$mic/"$dset"_fbank
+
     mkdir -p $features_dir/$dset
-    ../voicefilter/local/append_noisy_and_xvectors.sh data/$mic/$dset data/xvectors/$dset \
+    ../voicefilter/local/append_noisy_and_xvectors.sh data/$mic/"$dset"_fbank data/xvectors/$dset \
       $features_dir/$dset logs_vf --cmd "$train_cmd"
     echo "appended"
-    mkdir -p "$dset"_vf
-    cp -r data/$mic/$dset data/$mic/"$dset"_vf
 
-    utils/fix_data_dir.sh $features_dir/$dset
-    ../voicefilter/local/evaluate.sh $features_dir/$dset ../voicefilter/exp4 data/$mic/"$dset"_vf \
-      --cmd "$decode_cmd" --nj 15 --use-gpu yes || exit 1;
-    echo "used vf model"
-    cp data/$mic/"$dset"_vf/output.scp data/$mic/"$dset"_vf/feats.scp
+    mkdir -p "$dset"_vf
+    cp -r data/$mic/"$dset"_fbank data/$mic/"$dset"_vf
   done
 fi
+#stage=100500
 
 if [ $stage -le 16 ]; then
-  #cp -r data/$mic/train_cleaned data/$mic/train_cleaned_vf
-
-  for dset in dev "eval"; do
-    utils/fix_data_dir.sh data/$mic/"$dset"_vf
-    steps/make_mfcc.sh --nj 8 --mfcc-config conf/mfcc_hires80.conf \
-      --cmd run.pl data/$mic/"$dset"_vf_hires
-    steps/compute_cmvn_stats.sh data/$mic/"$dset"_vf_hires
-    utils/fix_data_dir.sh data/$mic/"$dset"_vf_hires
-
-    steps/online/nnet2/extract_ivectors_online.sh --cmd run.pl --nj 8 \
-      data/$mic/"$dset"_vf_hires exp/$mic/nnet3_cleaned/extractor \
-      exp/$mic/nnet3_cleaned/ivectors_"$dset"_vf_hires
+  for dset in dev; do
+    utils/fix_data_dir.sh $features_dir/$dset
+    output_dir=data/$mic/"$dset"_vf/fbanks1
+    mkdir -p $output_dir
+    ../voicefilter/local/evaluate.sh --cmd "$decode_cmd" --nj 16 --use-gpu true \
+      $features_dir/$dset ../voicefilter/exp_fbanks_backup $output_dir || exit 1;
+    echo "used vf model"
+    cp $output_dir/output.scp $output_dir/feats_fbank.scp
+    for f in glm reco2file_and_channel segments spk2utt stm text utt2dur utt2num_frames utt2spk wav.scp; do
+      cp data/$mic/"$dset"_vf/$f $output_dir/$f
+    done
   done
-  for dset in dev "eval"; do
+fi
+#stage=100500
+
+if [ $stage -le 17 ]; then
+  for dset in dev; do
+    # Here we convert fbank features attained after applying VF model to MFCC features
+    # expected by ASR model.
+    # Note: It's important to have the same number of jobs as when making original fbanks!
+    ../voicefilter/local/fbank_to_mfcc.sh --mfcc-config conf/mfcc_hires80.conf --nj 8 \
+      --cmd "$train_cmd" data/$mic/"$dset"_vf/fbanks1
+  done
+fi
+#stage=100500
+
+if [ $stage -le 18 ]; then
+#  cp -r data/$mic/train_cleaned data/$mic/train_cleaned_vf
+
+#  for dset in dev; do
+  #for dset in dev "eval"; do
+    #utils/fix_data_dir.sh data/$mic/"$dset"_vf
+    #steps/make_mfcc.sh --nj 8 --mfcc-config conf/mfcc_hires80.conf \
+    #  --cmd run.pl data/$mic/"$dset"_vf_hires
+    #steps/compute_cmvn_stats.sh data/$mic/"$dset"_vf_hires
+    #utils/fix_data_dir.sh data/$mic/"$dset"_vf_hires
+
+#    ../voicefilter/local/append_noisy_and_xvectors.sh data/$mic/"$dset"_hires data/xvectors/$dset \
+#      $features_dir/$dset logs_vf --cmd "$train_cmd"
+#    echo "appended"
+
+#    utils/fix_data_dir.sh $features_dir/$dset
+
+#    ../voicefilter/local/evaluate.sh $features_dir/$dset ../voicefilter/exp data/$mic/"$dset"_vf \
+#      --cmd "$decode_cmd" --nj 16 --use-gpu yes || exit 1;
+#    cp data/$mic/"$dset"_vf/output.scp data/$mic/"$dset"_vf/feats.scp
+
+    #steps/online/nnet2/extract_ivectors_online.sh --cmd run.pl --nj 8 \
+    #  data/$mic/"$dset"_vf_hires exp/$mic/nnet3_cleaned/extractor \
+    #  exp/$mic/nnet3_cleaned/ivectors_"$dset"_vf_hires
+#  done
+  #for dset in dev "eval"; do
+  for dset in dev; do
     #api_opt=
     #[ "$mic" != "ihm" ] && ali_opt="--use-ihm-ali true"
-    local/chain/evaluate_vf.sh "$dset"_vf --mic $mic
+    utils/fix_data_dir.sh data/$mic/"$dset"_vf/fbanks1
+    local/chain/evaluate_vf.sh data/$mic/"$dset"_vf/fbanks1 fbanks1 --mic $mic
   done
 fi
 

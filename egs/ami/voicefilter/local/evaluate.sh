@@ -13,6 +13,7 @@ cmd=run.pl
 
 iter=final
 #final
+use_gpu=false
 
 if [ $# -le 3 ]; then
   cat >&2 <<EOF
@@ -23,6 +24,7 @@ Note: <log-dir> defaults to <data-dir>/log, and
 Options:
   --nj <nj>                            # number of parallel jobs.
   --cmd <run.pl|queue.pl <queue opts>> # how to run jobs.
+  --use-gpu <true|false>               # whether to use GPU
 EOF
    exit 1;
 fi
@@ -48,5 +50,5 @@ fi
 mkdir -p $OUTPUT_DIR
 
 steps/nnet3/compute_output.sh --nj $nj --cmd "$cmd" \
-  --iter ${iter} \
+  --iter ${iter} --use-gpu ${use_gpu} \
   ${DATA_DIR} ${NNET_DIR} ${OUTPUT_DIR} || exit 1; 

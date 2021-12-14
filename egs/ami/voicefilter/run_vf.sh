@@ -7,22 +7,22 @@
 MUSAN_ROOT="musan_corpora"
 AMI_AUDIO_DIR="amicorpus"
 AMI_ANNOTATIONS_DIR="annotations"
-NOISY_AUDIO_DIR="data2/audio/mix"
-CLEAN_AUDIO_DIR="data2/audio/clean"
+NOISY_AUDIO_DIR="data/audio/mix"
+CLEAN_AUDIO_DIR="data/audio/clean"
 #"experiments/data/clean"
 #"data/processed/clean"
-ENROLLMENT_DIR="data2/audio/clean"
+ENROLLMENT_DIR="data/audio/clean"
 EMBEDDING_NNET_DIR="voxceleb_trained"
-PREPARED_DATA_DIR="data2/prepared"
-DATA_DIR="data2/processed"
+PREPARED_DATA_DIR="data/prepared"
+DATA_DIR="data/processed"
 FEATURES_DIR=$DATA_DIR/noisy_embedding
-LOGS_DIR="logs2"
-VF_NNET_DIR="exp2"
+LOGS_DIR="logs"
+VF_NNET_DIR="exp_fbanks"
 # Chunk length for voice filter (in seconds)
 CHUNK_LENGTH=3
 
 
-stage=0
+stage=8
 
 set -euo pipefail
 
@@ -55,11 +55,11 @@ fi
 # Data extraction (extract clean/enrollment/mixed audio using transcripts)
 if [ $stage -le 1 ]; then
   python3 local/clean_audio_extractor.py --audio-folder $AMI_AUDIO_DIR --annotations-folder $AMI_ANNOTATIONS_DIR \
-    --output-folder $CLEAN_AUDIO_DIR --logs-folder $LOGS_DIR/extraction --offset 100 --enrollment-duration-threshold 2000 \
-    --chunk-length $CHUNK_LENGTH --combine --num-jobs 8
+    --output-folder $CLEAN_AUDIO_DIR --logs-folder $LOGS_DIR/extraction --offset 100 --enrollment-duration-threshold 3000 \
+    --chunk-length $CHUNK_LENGTH --combine --num-jobs 32
   python3 local/split_mix_audio.py --clean-audio-folder $CLEAN_AUDIO_DIR --logs-folder $LOGS_DIR/mix \
     --mix-folder $NOISY_AUDIO_DIR --chunk-length $CHUNK_LENGTH --add-other-noise \
-    --musan-folder $MUSAN_ROOT/musan --num-jobs 8
+    --musan-folder $MUSAN_ROOT/musan --num-jobs 32
 fi
 #stage=100500
 
@@ -83,15 +83,17 @@ fi
 
 # Embeddings preparation.
 if [ $stage -le 4 ]; then
-  for dset in train dev "eval"; do
+  for dset in train; do
     steps/make_mfcc_pitch.sh --write-utt2num-frames true --mfcc-config conf/xvectors/mfcc.conf \
-      --pitch-config conf/xvectors/pitch.conf --nj 8 --cmd "$train_cmd --mem 4G" $DATA_DIR/enrollment/$dset
+      --pitch-config conf/xvectors/pitch.conf --nj 32 --cmd "$train_cmd --mem 4G" $DATA_DIR/enrollment/$dset
     utils/fix_data_dir.sh $DATA_DIR/enrollment/$dset
 
-    sid/compute_vad_decision.sh --nj 8 --cmd "$train_cmd --mem 4G" --vad-config conf/xvectors/vad.conf \
+    sid/compute_vad_decision.sh --nj 32 --cmd "$train_cmd --mem 4G" --vad-config conf/xvectors/vad.conf \
       $DATA_DIR/enrollment/$dset
 
-    sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 4G" --nj 8 \
+    utils/fix_data_dir.sh $DATA_DIR/enrollment/$dset
+
+    sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 4G" --nj 4 \
       --use-gpu wait $EMBEDDING_NNET_DIR $DATA_DIR/enrollment/$dset \
       $DATA_DIR/xvectors/$dset
   done
@@ -100,10 +102,11 @@ fi
 
 # Feature extraction.
 if [ $stage -le 5 ]; then
-  for dset in dev "eval"; do
+  for dset in train; do
     for audio_type in noisy clean; do
-      #steps/make_fbank.sh --nj 2 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
-      steps/make_mfcc.sh --nj 15 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
+      steps/make_fbank.sh --nj 16 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
+      #steps/make_mfcc.sh --nj 15 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
+      #steps/make_mfcc.sh --mfcc-config conf/mfcc_hires80.conf --nj 20 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
       #steps/compute_cmvn_stats.sh $DATA_DIR/$audio_type/$dset
       utils/fix_data_dir.sh $DATA_DIR/$audio_type/$dset
 
@@ -112,11 +115,11 @@ if [ $stage -le 5 ]; then
 
     mkdir -p $FEATURES_DIR/$dset || exit 1;
     local/append_noisy_and_xvectors.sh $DATA_DIR/noisy/$dset $DATA_DIR/xvectors/$dset $FEATURES_DIR/$dset \
-      $LOGS_DIR --cmd "$train_cmd" --nj 15
+      $LOGS_DIR --cmd "$train_cmd" --nj 16
 
   done
 fi
-stage=100500
+#stage=100500
 
 # Train nnet
 if [ $stage -le 6 ]; then
@@ -129,10 +132,47 @@ fi
 # Evaluate
 if [ $stage -le 7 ]; then
   for dset in dev "eval"; do
-    utils/fix_data_dir.sh $FEATURES_DIR/$dset
-    local/evaluate.sh $FEATURES_DIR/$dset $VF_NNET_DIR $VF_NNET_DIR/output \
-      --use-gpu yes --cmd "$decode_cmd" --nj 10 || exit 1;
-    #local/evaluate.sh $FEATURES_DIR/train $VF_NNET_DIR $VF_NNET_DIR/output --cmd "$decode_cmd" --nj 2 || exit 1;
+    # Prepare embedding.
+    steps/make_mfcc_pitch.sh --write-utt2num-frames true --mfcc-config conf/xvectors/mfcc.conf \
+      --pitch-config conf/xvectors/pitch.conf --nj 32 --cmd "$train_cmd --mem 4G" $DATA_DIR/enrollment/$dset
+    utils/fix_data_dir.sh $DATA_DIR/enrollment/$dset
+
+    sid/compute_vad_decision.sh --nj 32 --cmd "$train_cmd --mem 4G" --vad-config conf/xvectors/vad.conf \
+      $DATA_DIR/enrollment/$dset
+
+    utils/fix_data_dir.sh $DATA_DIR/enrollment/$dset
+
+    sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 4G" --nj 4 \
+      --use-gpu wait $EMBEDDING_NNET_DIR $DATA_DIR/enrollment/$dset \
+      $DATA_DIR/xvectors/$dset
+
+    # Feature extraction.
+    for audio_type in noisy clean; do
+      steps/make_fbank.sh --nj 16 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset
+      utils/fix_data_dir.sh $DATA_DIR/$audio_type/$dset
+    done
+
+    # Prepare input for the nnet.
+    mkdir -p $FEATURES_DIR/$dset || exit 1;
+    local/append_noisy_and_xvectors.sh $DATA_DIR/noisy/$dset $DATA_DIR/xvectors/$dset $FEATURES_DIR/$dset \
+      $LOGS_DIR --cmd "$train_cmd" --nj 16
+
+    # Get the nnet output for the set.
+    #utils/fix_data_dir.sh $FEATURES_DIR/$dset
+    #local/evaluate.sh $FEATURES_DIR/$dset $VF_NNET_DIR $VF_NNET_DIR/"$dset"_output \
+    #  --use-gpu true --cmd "$decode_cmd" --nj 10 || exit 1;
+  done
+fi
+
+if [ $stage -le 8 ]; then
+  for dset in dev; do
+    # Get the nnet output for the set.
+    local/evaluate.sh $FEATURES_DIR/$dset $VF_NNET_DIR $VF_NNET_DIR/"$dset"_output \
+      --use-gpu true --cmd "$decode_cmd" --nj 10 || exit 1;
+
+    copy-feats scp:$VF_NNET_DIR/"$dset"_output/output.scp ark,t:$VF_NNET_DIR/"$dset"_output/feats_matrix
+    #copy-feats scp:$DATA_DIR/clean/$dset/feats.scp ark,t:$DATA_DIR/clean/$dset/feats_matrix
+    local/compute_objective.py --predictions-dir $VF_NNET_DIR/"$dset"_output --ground-truth-dir $DATA_DIR/clean/$dset
   done
 fi
 

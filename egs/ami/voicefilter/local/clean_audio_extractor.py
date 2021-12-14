@@ -224,7 +224,21 @@ def save_enrollment(output_folder: str, meeting_id: str, number_of_speakers: int
     )
 
     if len(filtered_segment_files) == 0:
-      print(f'There are no segments for speaker {speaker_id_int}')
+      print(f'There are no segments for speaker {speaker_id_int} with required length restrictions')
+      filtered_segment_files = list(
+        filter(
+          lambda segment_file_name: (
+            extract_duration_from_segment_file(segment_file_name) > 1000
+          ),
+          audio_segment_files
+        )
+      )
+
+    if len(filtered_segment_files) == 0:
+      print(f'There are no segments for speaker {speaker_id_int} with length greater than 1 sec')
+      filtered_segment_files = audio_segment_files
+    if len(filtered_segment_files) == 0:
+      print('No segments')
       # [TODO] not continue? throw something?
       continue
 
@@ -474,9 +488,11 @@ def main():
 
   start_time = time.time()
   meeting_list_folders = os.listdir(cfg.audio_folder)
+  number_of_meetings = 0
   # [TODO] is there a better way to view the progress?
   for meeting_id in meeting_list_folders:
     if os.path.isdir(os.path.join(cfg.audio_folder, meeting_id)):
+      number_of_meetings += 1
       pool.apply_async(
         process_meeting_folder,
         args=(cfg.logs_folder, meeting_id, cfg.audio_folder, cfg.output_folder,
@@ -490,7 +506,7 @@ def main():
 
   end_time = time.time()
   print('The extraction has been finished.')
-  print(f'Number of successfully processed meetings {number_of_processed_meetings} out of {len(meeting_list_folders)}.')
+  print(f'Number of successfully processed meetings {number_of_processed_meetings} out of {number_of_meetings}.')
   print('Time spent: {:.2f} minutes'.format((end_time - start_time) / 60))
 
 if __name__ == '__main__':

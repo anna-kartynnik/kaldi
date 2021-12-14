@@ -113,25 +113,25 @@ done
 #   write_utt2dur_opt=
 # fi
 
-if [ -f $data/segments ]; then
-  echo "$0 [info]: segments file exists: using that."
+#if [ -f $data/segments ]; then
+#  echo "$0 [info]: segments file exists: using that."
 
-  split_segments=
-  for n in $(seq $nj); do
-    split_segments="$split_segments $logdir/segments.$n"
-  done
+#  split_segments=
+#  for n in $(seq $nj); do
+#    split_segments="$split_segments $logdir/segments.$n"
+#  done
 
-  utils/split_scp.pl $data/segments $split_segments || exit 1;
-  rm $logdir/.error 2>/dev/null
+#  utils/split_scp.pl $data/segments $split_segments || exit 1;
+#  rm $logdir/.error 2>/dev/null
 
-  $cmd JOB=1:$nj $logdir/fbank_to_mfcc_${name}.JOB.log \
-    extract-segments scp,p:$fbank_scp $logdir/segments.JOB ark:- \| \
-    fbank-to-mfcc --verbose=2 $mfcc_params ark:- ark:- \| \
-    copy-feats --compress=$compress ark:- \
-      ark,scp:$mfccdir/raw_mfcc_$name.JOB.ark,$mfccdir/raw_mfcc_$name.JOB.scp \
-     || exit 1;
+#  $cmd JOB=1:$nj $logdir/fbank_to_mfcc_${name}.JOB.log \
+#    extract-segments scp,p:$fbank_scp $logdir/segments.JOB ark:- \| \
+#    fbank-to-mfcc --verbose=2 $mfcc_params ark:- ark:- \| \
+#    copy-feats --compress=$compress ark:- \
+#      ark,scp:$mfccdir/raw_mfcc_$name.JOB.ark,$mfccdir/raw_mfcc_$name.JOB.scp \
+#     || exit 1;
 
-else
+#else
   echo "$0: [info]: no segments file exists: assuming feats_fbank.scp indexed by utterance."
   split_scps=
   for n in $(seq $nj); do
@@ -149,7 +149,7 @@ else
     copy-feats --compress=$compress ark:- \
       ark,scp:$mfccdir/raw_mfcc_$name.JOB.ark,$mfccdir/raw_mfcc_$name.JOB.scp \
       || exit 1;
-fi
+#fi
 
 
 if [ -f $logdir/.error.$name ]; then
