@@ -8,11 +8,11 @@ namespace {
 
 using namespace kaldi;
 
-class FbankToMfccComputer {
+class LogFbankToMfccComputer {
  public:
-  FbankToMfccComputer(int num_bins,
-                      int num_ceps,
-                      BaseFloat cepstral_lifter)
+  LogFbankToMfccComputer(int num_bins,
+                         int num_ceps,
+                         BaseFloat cepstral_lifter)
     : num_bins_(num_bins),
       num_ceps_(num_ceps), 
       cepstral_lifter_(cepstral_lifter),
@@ -30,12 +30,12 @@ class FbankToMfccComputer {
 
   // Computes one set of MFCC features from a log-mel filterbank.
   // Note: Currently unused but serves as a reference.
-  void Compute(const VectorBase<BaseFloat> &fbank,
+  void Compute(const VectorBase<BaseFloat> &log_fbank,
                VectorBase<BaseFloat> *mfcc) const {
     KALDI_ASSERT(mfcc != nullptr);
     mfcc->SetZero();
 
-    mfcc->AddMatVec(1.0, truncated_dct_matrix_, kNoTrans, fbank, 0.0);
+    mfcc->AddMatVec(1.0, truncated_dct_matrix_, kNoTrans, log_fbank, 0.0);
     if (cepstral_lifter_ != 0.0) {
       mfcc->MulElements(lifter_coeffs_);
     }
@@ -44,12 +44,12 @@ class FbankToMfccComputer {
   // Computes a batch of MFCC features from log-mel filterbanks.
   // Note that since Kaldi uses the "rows as features" format,
   // the computations appear transposed comparing to the above.
-  void Compute(const MatrixBase<BaseFloat> &fbanks,
+  void Compute(const MatrixBase<BaseFloat> &log_fbanks,
                MatrixBase<BaseFloat> *mfccs) const {
     KALDI_ASSERT(mfccs != nullptr);
     mfccs->SetZero();
 
-    mfccs->AddMatMat(1.0, fbanks, kNoTrans, truncated_dct_matrix_, kTrans, 0.0);
+    mfccs->AddMatMat(1.0, log_fbanks, kNoTrans, truncated_dct_matrix_, kTrans, 0.0);
     if (cepstral_lifter_ != 0.0) {
       mfccs->MulColsVec(lifter_coeffs_);
     }
@@ -81,6 +81,7 @@ int main(int argc, char* argv[]) {
     int32 num_bins = 23;
     int32 num_ceps = 13;
     BaseFloat cepstral_lifter = 22.0;
+    bool use_log_fbank = false;
 
     po.Register("num-mel-bins", &num_bins,
 		"Number of original triangular mel-frequency bins");
@@ -88,6 +89,8 @@ int main(int argc, char* argv[]) {
                 "Number of cepstra in MFCC computation (including C0)");
     po.Register("cepstral-lifter", &cepstral_lifter,
                 "Constant controlling scaling of MFCCs");
+    po.Register("use-log-fbank", &use_log_fbank,
+		"The input filter banks are logarithmic (default: linear)");
 
     po.Read(argc, argv);
 
@@ -106,20 +109,27 @@ int main(int argc, char* argv[]) {
       KALDI_ERR << "Could not initialize output with wspecifier " << output_wspecifier;
     }
 
-    FbankToMfccComputer computer(num_bins, num_ceps, cepstral_lifter);
+    LogFbankToMfccComputer computer(num_bins, num_ceps, cepstral_lifter);
 
     int32 num_utts = 0;
     for (; !kaldi_reader.Done(); kaldi_reader.Next(), num_utts++) {
       const std::string utt = kaldi_reader.Key();
-      const Matrix<BaseFloat> &fbanks = kaldi_reader.Value();
+      Matrix<BaseFloat> inputs(kaldi_reader.Value());
 
-      if (fbanks.NumCols() != num_bins) {
-        KALDI_ERR << utt << ": got " << fbanks.NumCols() << " filterbanks"
+      if (!use_log_fbank) {
+	// Avoid taking the logarithm of zero.
+	inputs.ApplyFloor(std::numeric_limits<float>::epsilon());
+	inputs.ApplyLog();
+      }
+      const Matrix<BaseFloat> &log_fbanks = inputs;
+
+      if (inputs.NumCols() != num_bins) {
+        KALDI_ERR << utt << ": got " << inputs.NumCols() << " filterbanks"
                   << ", but --num-mel-bins is " << num_bins;
       }
 
-      Matrix<BaseFloat> mfccs(fbanks.NumRows(), num_ceps);
-      computer.Compute(fbanks, &mfccs);
+      Matrix<BaseFloat> mfccs(log_fbanks.NumRows(), num_ceps);
+      computer.Compute(log_fbanks, &mfccs);
 
       kaldi_writer.Write(utt, mfccs);
 
