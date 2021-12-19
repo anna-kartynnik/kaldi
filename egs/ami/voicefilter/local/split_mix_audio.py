@@ -11,8 +11,8 @@ import time
 
 import file_utils
 
-MAX_NUMBER_OF_SPEAKER_CHUNKS = 30
-MAX_NUMBER_OF_OTHER_NOISES_MIXTURES_PER_SPEAKER_PER_TYPE = 10
+MAX_NUMBER_OF_SPEAKER_CHUNKS = 25
+MAX_NUMBER_OF_OTHER_NOISES_MIXTURES_PER_SPEAKER_PER_TYPE = 3
 
 def split_audio_file(source_file_path: str, target_file_path: str, chunk_length: int):
   """
@@ -87,7 +87,8 @@ def create_audio_mixture_with_other_noise(mix_output_folder: str, meeting_id: st
         mix_output_folder, meeting_id, speaker_chunk_number, noise_name
       )
 
-      mix_two_audio_files(speaker_chunk, f'-v 0.01 {noise_chunk}', mix_file_path)
+      volume = random.random() * 0.1
+      mix_two_audio_files(speaker_chunk, f'-v {volume} {noise_chunk}', mix_file_path)
 
       # segment_start = random.randint(0, )
 
@@ -105,8 +106,8 @@ def create_audio_mixture(mix_output_folder: str, meeting_id: str, speaker_1_chun
   mix_file_path = file_utils.get_mix_file_name(
     mix_output_folder, meeting_id, speaker_1_chunk_number, speaker_2_chunk_number
   )
-
-  mix_two_audio_files(speaker_1_chunk, f'-v 0.5 {speaker_2_chunk}', mix_file_path)
+  volume = random.random() * 0.5
+  mix_two_audio_files(speaker_1_chunk, f'-v {volume} {speaker_2_chunk}', mix_file_path)
 
   # sox_mix_cmd_str = f'sox -m {speaker_1_chunk} {speaker_2_chunk} {mix_file_path}'
 
@@ -138,12 +139,15 @@ def mix_audio_files(clean_audio_folder: str, meeting_id: str, mix_parent_folder:
 
     other_speakers_chunk_list = []
     for speaker_id_2 in range(number_of_speakers):
-      if speaker_id_2 == speaker_id_1:
+      if speaker_id_2 == speaker_id_1: 
         continue
       speaker_2_chunks_folder = file_utils.get_clean_chunks_folder(clean_audio_folder, meeting_id, speaker_id_2)
       other_speakers_chunk_list.extend(glob.glob(os.path.join(speaker_2_chunks_folder, '*.wav')))
     
     for speaker_1_chunk in speaker_1_selected_chunks:
+      speaker_1_chunk_number = file_utils.get_speaker_chunk_number(speaker_1_chunk)
+      os.system(f'cp {speaker_1_chunk} {file_utils.get_mix_file_name(mix_output_folder, meeting_id, speaker_1_chunk_number, speaker_1_chunk_number)}')
+
       speaker_2_chunk = random.choice(other_speakers_chunk_list)
 
       create_audio_mixture(mix_output_folder, meeting_id, speaker_1_chunk, speaker_2_chunk)
@@ -202,6 +206,8 @@ def main():
 
   cfg = parser.parse_args()
 
+  random.seed(13)
+
   print(f'Creating the output folder {cfg.mix_folder}')
   if not os.path.exists(cfg.mix_folder):
     os.makedirs(cfg.mix_folder)
@@ -250,7 +256,7 @@ def main():
   print('The processing (splitting and mixture) has been finished.')
   print(f'Number of successfully processed meetings {number_of_processed_meetings} out of {len(meeting_list_folders)}.')
   
-  mixture_file_list = glob.glob(os.path.join(cfg.mix_folder, '*.wav'))
+  mixture_file_list = glob.glob(os.path.join(cfg.mix_folder, '**', 'mixtures', '*.wav'))
   print(f'{len(mixture_file_list)} new mixture files have been created.')
 
   print('Time spent: {:.2f} minutes'.format((end_time - start_time) / 60))    

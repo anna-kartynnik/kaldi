@@ -32,8 +32,13 @@ mkdir -p $OUTPUT_DIR/temp
 LOCAL_OUTPUT_DIR=$OUTPUT_DIR/temp
 
 # [TODO] check that wav.scp exists?
-awk '{print $1}' $DATA_DIR/wav.scp | \
-  perl -ne 'split; $_ =~ m/AMI_(.*)_H.*/; print "$1 $_"' > $LOCAL_OUTPUT_DIR/meetings2utt
+if [[ $DATA_DIR == *"enrollment"* ]]; then
+  awk '{print $1}' $DATA_DIR/wav.scp | \
+    perl -ne 'split; $_ =~ m/AMI_(.*)_.*/; print "$1 $_"' > $LOCAL_OUTPUT_DIR/meetings2utt
+else
+  awk '{print $1}' $DATA_DIR/wav.scp | \
+    perl -ne 'split; $_ =~ m/AMI_(.*)_H.*/; print "$1 $_"' > $LOCAL_OUTPUT_DIR/meetings2utt
+fi
 
 for dset in train dev "eval"; do
   mkdir -p $OUTPUT_DIR/$dset

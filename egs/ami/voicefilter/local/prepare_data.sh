@@ -133,10 +133,16 @@ utils/validate_data_dir.sh --no-feats --no-text $CLEAN_OUTPUT_DIR || exit 1;
 echo "Working with enrollment data."
 
 # Provide enrollments for all utterances. utt-id looks like 'AMI_ES2002a_H0001_3003'.
-awk '{print $1}' $LOCAL_OUTPUT_DIR/clean/uttids | \
-  perl -ne 'split; $_ =~ m/AMI_(.*)_H([0-4])([0-9]{3})_(.*)/; print "/$1/$2/enrollment/$1.enrollment-$2.wav\n"' | \
+awk '{print $1}' $LOCAL_OUTPUT_DIR/clean/spk2utt > $LOCAL_OUTPUT_DIR/clean/spkids
+#awk '{print $1}' $LOCAL_OUTPUT_DIR/clean/uttids | \
+#  perl -ne 'split; $_ =~ m/AMI_(.*)_H([0-4])([0-9]{3})_(.*)/; print "/$1/$2/enrollment/$1.enrollment-$2.wav\n"' | \
+#  awk -v folder=$ENROLLMENT_AUDIO_DIR '{print folder $1}' - | \
+#  paste $LOCAL_OUTPUT_DIR/clean/uttids - > $LOCAL_OUTPUT_DIR/enrollment/wav_temp.scp
+# AMI_EN2001b_3
+awk '{print $1}' $LOCAL_OUTPUT_DIR/clean/spkids | \
+  perl -ne 'split; $_ =~ m/AMI_(.*)_([0-4])/; print "/$1/$2/enrollment/$1.enrollment-$2.wav\n"' | \
   awk -v folder=$ENROLLMENT_AUDIO_DIR '{print folder $1}' - | \
-  paste $LOCAL_OUTPUT_DIR/clean/uttids - > $LOCAL_OUTPUT_DIR/enrollment/wav_temp.scp
+  paste $LOCAL_OUTPUT_DIR/clean/spkids - | sort -u - > $LOCAL_OUTPUT_DIR/enrollment/wav_temp.scp
 
 #replace path with an appropriate sox command that select single channel only
 awk '{print $1" sox -c 1 -t wavpcm -e signed-integer "$2" -t wavpcm - |"}' $LOCAL_OUTPUT_DIR/enrollment/wav_temp.scp > $LOCAL_OUTPUT_DIR/enrollment/wav.scp
@@ -148,9 +154,11 @@ awk '{print $1" sox -c 1 -t wavpcm -e signed-integer "$2" -t wavpcm - |"}' $LOCA
 
 
 # utt2spk and spk2utt are the same for all audio types.
-for f in spk2utt utt2spk; do
-  cp $LOCAL_OUTPUT_DIR/noisy/$f $LOCAL_OUTPUT_DIR/enrollment/$f || exit 1;
-done
+paste $LOCAL_OUTPUT_DIR/clean/spkids $LOCAL_OUTPUT_DIR/clean/spkids > $LOCAL_OUTPUT_DIR/enrollment/spk2utt
+cp $LOCAL_OUTPUT_DIR/enrollment/spk2utt $LOCAL_OUTPUT_DIR/enrollment/utt2spk
+#for f in spk2utt utt2spk; do
+#  cp $LOCAL_OUTPUT_DIR/noisy/$f $LOCAL_OUTPUT_DIR/enrollment/$f || exit 1;
+#done
 
 # Copy stuff into its final location
 mkdir -p $ENROLLMENT_OUTPUT_DIR

@@ -49,7 +49,7 @@ if [ -f path.sh ]; then . ./path.sh; fi
 # main_dir=$6    # location of /data and /exp dir (probably "MTL")
 
 #hidden_dim=128
-num_epochs=2
+num_epochs=3
 
 data_dir=$1  # like data/train_orig/noisy
 targets_scp=$2 # like data/train_orig/clean/feats.scp
@@ -77,8 +77,8 @@ if [ "$config_nnet" -eq "1" ]; then
     mkdir -p $exp_dir/egs
 
     #feat_dim=`feat-to-dim scp:$data_dir/feats.scp -`
-    mfcc_dim=`feat-to-dim scp:$targets_scp -`
-    fbank_dim=128
+    target_dim=`feat-to-dim scp:$targets_scp -`
+    fbank_dim=$target_dim
     feat_dim=$fbank_dim
     num_targets=$feat_dim
 
@@ -86,48 +86,59 @@ if [ "$config_nnet" -eq "1" ]; then
     xvector_dim=512
     embedding_dim=128
     lstm_output_dim=200
-    fc1_dim=128
-    fc_dim=$mfcc_dim
-    input_dim=$(($mfcc_dim + $xvector_dim))
+    fc1_dim=$target_dim
+    fc_dim=$target_dim
+    input_dim=$(($target_dim + $xvector_dim))
     # The following definition is for the voice filter model
     cat <<EOF > $exp_dir/configs/network.xconfig
 input dim=$input_dim name=input
 
-dim-range-component name=mfcc input=input dim=$mfcc_dim dim-offset=0
-dim-range-component name=speaker_embedding input=input dim=$xvector_dim dim-offset=$mfcc_dim
+dim-range-component name=fbanks input=input dim=$target_dim dim-offset=0
+dim-range-component name=speaker_embedding input=input dim=$xvector_dim dim-offset=$target_dim
 
 # this takes the MFCCs and generates filterbank coefficients. The MFCCs
 # are more compressible so we prefer to dump the MFCCs to disk rather
 # than filterbanks.
-idct-layer name=idct input=mfcc dim=$feat_dim cepstral-lifter=22 affine-transform-file=$exp_dir/configs/idct.mat
-batchnorm-component name=batchnorm0 input=idct
+#idct-layer name=idct input=mfcc dim=$feat_dim cepstral-lifter=22 affine-transform-file=$exp_dir/configs/idct.mat
+#batchnorm-component name=fbanks input=fbanks_lin
 
-batchnorm-layer name=embedding input=speaker_embedding dim=$embedding_dim 
+batchnorm-layer name=embedding input=speaker_embedding dim=$embedding_dim
+batchnorm-layer name=fbanks_norm input=fbanks
+#renorm-component name=fbanks input=fbanks_lin
+#renorm-component name=embedding input=speaker_embedding
 
-#conv-relu-batchnorm-layer name=conv1 input=batchnorm0 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-3,-2,-1,0,1,2,3 time-offsets=0
-#conv-relu-batchnorm-layer name=conv2 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=0 time-offsets=-3,-2,-1,0,1,2,3
-#conv-relu-batchnorm-layer name=conv3 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-2,-1,0,1,2
+conv-relu-batchnorm-layer name=conv1 input=fbanks_norm height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-3,-2,-1,0,1,2,3 time-offsets=0
+conv-relu-batchnorm-layer name=conv2 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=0 time-offsets=-3,-2,-1,0,1,2,3
+conv-relu-batchnorm-layer name=conv3 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-2,-1,0,1,2
 #conv-relu-batchnorm-layer name=conv4 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-4,-2,0,2,4
-# conv-relu-batchnorm-layer name=conv5 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-8,-4,0,4,8
-# conv-relu-batchnorm-layer name=conv6 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-16,-8,0,8,16
-# conv-relu-batchnorm-layer name=conv7 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-32,-16,0,16,32
-#conv-relu-batchnorm-layer name=conv8 height-in=$feat_dim height-out=$feat_dim num-filters-out=8 height-offsets=0 time-offsets=0
+#conv-relu-batchnorm-layer name=conv5 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-8,-4,0,4,8
+#conv-relu-batchnorm-layer name=conv6 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-16,-8,0,8,16
+#conv-relu-batchnorm-layer name=conv7 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-32,-16,0,16,32
+conv-relu-batchnorm-layer name=conv8 height-in=$feat_dim height-out=$feat_dim num-filters-out=8 height-offsets=0 time-offsets=0
 
-#lstm-layer name=lstmforward input=Append(conv8, embedding) cell-dim=$lstm_output_dim delay=-1
-#lstm-layer name=lstmbackward input=Append(conv8, embedding) cell-dim=$lstm_output_dim delay=1
+lstm-layer name=lstmforward input=Append(conv8, embedding) cell-dim=$lstm_output_dim delay=-1
+#l2-regularize=0.01
+#relu-renorm-layer name=lstmforward dim=$lstm_output_dim input=Append(0, IfDefined(-1))
+lstm-layer name=lstmbackward input=Append(conv8, embedding) cell-dim=$lstm_output_dim delay=1
+# l2-regularize=0.01
+#relu-renorm-layer name=lstmbackward dim=$lstm_output_dim input=Append(0, IfDefined(1))
 
-lstm-layer name=lstmforward input=Append(batchnorm0, embedding) cell-dim=$lstm_output_dim delay=-1
-lstm-layer name=lstmbackward input=Append(batchnorm0, embedding) cell-dim=$lstm_output_dim delay=1
+#lstm-layer name=lstmforward input=Append(batchnorm0, embedding) cell-dim=$lstm_output_dim delay=-1
+#lstm-layer name=lstmbackward input=Append(batchnorm0, embedding) cell-dim=$lstm_output_dim delay=1
 
 relu-layer name=lstmrelu input=Append(lstmforward, lstmbackward)
 
 relu-layer name=fc1 input=lstmrelu dim=$fc1_dim
+#relu-layer name=fc1 input=Append(conv8,embedding) dim=$fc1_dim
+#relu-layer name=fc1 input=Append(lstmforward, lstmbackward) dim=$fc1_dim
+
 sigmoid-layer name=fc2 input=fc1 dim=$fc_dim
+#linear-component name=fc2 input=fc1 dim=$fc_dim
 
 # component name=elementwiseproduct type=ElementwiseProductComponent input-dim=$(($fc_dim * 2)) output-dim=$fc_dim
 # component-node name=elementwiseproduct component=elementwiseproduct  input=Append(mfcc,fc2.sigmoid)
-
-output name=output dim=$fc_dim objective-type=quadratic
+output name=output dim=$fc_dim input=fc2 objective-type=quadratic
+#output-layer name=output dim=$fc_dim input=fc2 objective-type=quadratic l2-regularize=0.0001 include-log-softmax=false
 EOF
     
     # # Create separate outptut layer and softmax for all tasks.
@@ -155,47 +166,12 @@ EOF
     sed -i '$d' $nnet_config_file
     # Add element-wise product component.
     echo "component name=elementwiseproduct type=ElementwiseProductComponent input-dim=$(($fc_dim * 2)) output-dim=$fc_dim" >> $nnet_config_file
-    echo "component-node name=elementwiseproduct component=elementwiseproduct  input=Append(mfcc,fc2.sigmoid)" >> $nnet_config_file
-    #echo "$output_config" >> $nnet_config_file
+    echo "component-node name=elementwiseproduct component=elementwiseproduct  input=Append(fbanks,fc2.sigmoid)" >> $nnet_config_file
+     #echo "$output_config" >> $nnet_config_file
+    #echo "output-node name=output input=output.affine objective=quadratic" >> $nnet_config_file
     echo "output-node name=output input=elementwiseproduct objective=quadratic" >> $nnet_config_file
     
 fi
-
-# relu-renorm-layer name=tdnn1 input=Append(input@-2,input@-1,input,input@1,input@2) dim=$hidden_dim
-# relu-renorm-layer name=tdnn2 dim=$hidden_dim
-# relu-renorm-layer name=tdnn3 input=Append(-1,2) dim=$hidden_dim
-# relu-renorm-layer name=tdnn4 input=Append(-3,3) dim=$hidden_dim
-# relu-renorm-layer name=tdnn5 input=Append(-3,3) dim=$hidden_dim
-# relu-renorm-layer name=tdnn6 input=Append(-3,3) dim=$hidden_dim
-# relu-renorm-layer name=tdnn7 input=Append(-3,3) dim=$hidden_dim
-# relu-renorm-layer name=tdnn8 input=Append(-3,3) dim=$hidden_dim
-# relu-renorm-layer name=tdnn9 input=Append(-3,3) dim=$hidden_dim
-# relu-renorm-layer name=tdnn10 input=Append(-3,3) dim=$hidden_dim
-# relu-renorm-layer name=tdnn11 input=Append(-3,3) dim=$hidden_dim
-# relu-renorm-layer name=tdnnFINAL input=Append(-3,3) dim=$hidden_dim
-# relu-renorm-layer name=prefinal-affine input=tdnnFINAL dim=$hidden_dim
-# output-layer name=output dim=$num_targets max-change=1.5
-
-# input dim=$embedding_dim name=embedding
-# input dim=$feat_dim name=input
-
-# conv-relu-batchnorm-layer name=conv1 input=input height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-3,-2,-1,0,1,2,3 time-offsets=0
-# conv-relu-batchnorm-layer name=conv2 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=0 time-offsets=-3,-2,-1,0,1,2,3
-# conv-relu-batchnorm-layer name=conv3 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-2,-1,0,1,2
-# conv-relu-batchnorm-layer name=conv4 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-4,-2,0,2,4
-# conv-relu-batchnorm-layer name=conv5 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-8,-4,0,4,8
-# conv-relu-batchnorm-layer name=conv6 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-16,-8,0,8,16
-# conv-relu-batchnorm-layer name=conv7 height-in=$feat_dim height-out=$feat_dim num-filters-out=64 height-offsets=-2,-1,0,1,2 time-offsets=-32,-16,0,16,32
-# conv-relu-batchnorm-layer name=conv8 height-in=$feat_dim height-out=$feat_dim num-filters-out=8 height-offsets=0 time-offsets=0
-
-# lstm-layer name=lstmforward input=Append(conv8, embedding) cell-dim=$lstm_output_dim delay=-1
-# lstm-layer name=lstmbackward input=Append(conv8, embedding) cell-dim=$lstm_output_dim delay=1
-
-# relu-layer name=lstmrelu input=Append(lstmforward, lstmbackward)
-
-# relu-layer name=fc1 input=lstmrelu dim=$fc_dim
-# sigmoid-layer name=fc2 input=fc1 dim=$fc_dim
-# output-layer name=output dim=$fc_dim include-log-softmax=false objective-type=quadratic
 
 
 # if [ "$make_egs" -eq "1" ]; then
@@ -247,17 +223,25 @@ if [ "$train_nnet" -eq "1" ]; then
     echo "### BEGIN TRAIN NNET ###"
     echo "### ================ ###"
 
+    train_stage=nanny
+    if [ "$train_stage" = 'nanny' ]; then
+        train_stage=$(cat "$exp_dir/nanny-last-iter")
+        train_stage=$((train_stage + 1))
+    fi
+#--trainer.input-model="exp_lin_power_fbanks_backup2/146.raw"
     steps/nnet3/train_raw_dnn.py \
-        --stage=-5 \
+        --stage=$train_stage \
         --cmd="$cmd" \
+        --nj=$nj \
         --trainer.num-epochs=$num_epochs \
         --trainer.optimization.num-jobs-initial=1 \
-        --trainer.optimization.num-jobs-final=1 \
-        --trainer.optimization.initial-effective-lrate=0.0015 \
-        --trainer.optimization.final-effective-lrate=0.00015 \
-        --trainer.optimization.minibatch-size=128 \
-        --egs.frames-per-eg=4 \
-        --trainer.samples-per-iter=5000 \
+        --trainer.optimization.num-jobs-final=4 \
+        --trainer.optimization.initial-effective-lrate=0.001 \
+        --trainer.optimization.minibatch-size=64 \
+        --trainer.shuffle-buffer-size=1000 \
+        --cleanup.preserve-model-interval=20 \
+        --egs.frames-per-eg=8 \
+        --trainer.samples-per-iter=50000 \
         --trainer.max-param-change=2.0 \
         --trainer.srand=0 \
         --feat.cmvn-opts="--norm-means=false --norm-vars=false" \

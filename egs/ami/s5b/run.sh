@@ -17,7 +17,9 @@ mic=ihm
 
 # Train systems,
 nj=30 # number of parallel jobs,
-stage=16
+stage=15
+DO_PCA=false
+#true
 . utils/parse_options.sh
 
 base_mic=$(echo $mic | sed 's/[0-9]//g') # sdm, ihm or mdm
@@ -183,18 +185,27 @@ if [ $stage -le 13 ]; then
   mkdir -p $temp_dir
   enrollment_dir=../voicefilter/data/audio/clean
   for dset in dev "eval"; do
-    mkdir -p data/enrollment/$dset
+    mkdir -p data/$mic/enrollment/$dset
+    #AMI_EN2002a_H00
     awk '{print $1}' data/$mic/$dset/feats.scp > $temp_dir/uttids
-    awk '{print $1}' data/$mic/$dset/feats.scp | \
-      perl -ne 'split; $_ =~ m/AMI_(.*)_H0([0-4])_.*/; print "/$1/$2/enrollment/$1.enrollment-$2.wav\n"' | \
+    awk '{print $1}' data/$mic/$dset/wav.scp | sort -u - > $temp_dir/spkids
+    awk '{print $1}' $temp_dir/spkids | \
+      perl -ne 'split; $_ =~ m/AMI_(.*)_H0([0-4])/; print "/$1/$2/enrollment/$1.enrollment-$2.wav\n"' | \
       awk -v folder=$enrollment_dir '{print folder $1}' - | \
-      paste $temp_dir/uttids - > $temp_dir/"$dset"_enrollment_wav_temp.scp
+      paste $temp_dir/spkids - > $temp_dir/"$dset"_enrollment_wav_temp.scp
 
     awk '{print $1" sox -c 1 -t wavpcm -e signed-integer "$2" -t wavpcm - |"}' $temp_dir/"$dset"_enrollment_wav_temp.scp > $temp_dir/"$dset"_enrollment_wav.scp
-    for f in spk2utt utt2spk; do
-      cp data/$mic/$dset/$f data/enrollment/$dset/$f
-    done
-    cp $temp_dir/"$dset"_enrollment_wav.scp data/enrollment/$dset/wav.scp
+    awk '{print $1}' $temp_dir/uttids | \
+      perl -ne 'split; $_ =~ m/AMI_(.*)_H0([0-4])_.*/; print "AMI_$1_H0$2\n"' | \
+      paste $temp_dir/uttids - > data/$mic/enrollment/$dset/utt2spk_orig
+    paste $temp_dir/spkids $temp_dir/spkids > data/$mic/enrollment/$dset/utt2spk
+    utils/utt2spk_to_spk2utt.pl <data/$mic/enrollment/$dset/utt2spk >data/$mic/enrollment/$dset/spk2utt
+    #for f in spk2utt utt2spk; do
+    #  cp data/$mic/$dset/$f data/enrollment/$dset/$f
+    #done
+    #paste $temp_dir/spkids $temp_dir/spkids > data/enrollment/$dset/spk2utt
+    #cp data/enrollment/$dset/spk2utt data/enrollment/$dset/utt2spk
+    cp $temp_dir/"$dset"_enrollment_wav.scp data/$mic/enrollment/$dset/wav.scp
   done
   echo "Finished data preparation for enrollment"
 fi
@@ -204,70 +215,97 @@ if [ $stage -le 14 ]; then
   echo "Embedding preparation for dev eval."
   mkdir -p data/xvectors
   #emb_cmd=run.pl
-  for dset in dev "eval"; do
+  for dset in dev eval; do
     steps/make_mfcc_pitch.sh --write-utt2num-frames true --mfcc-config ../voicefilter/conf/xvectors/mfcc.conf \
       --pitch-config ../voicefilter/conf/xvectors/pitch.conf --nj 10 --cmd "$train_cmd" \
-      data/enrollment/$dset
+      data/$mic/enrollment/$dset
 
-    utils/fix_data_dir.sh data/enrollment/$dset
+    utils/fix_data_dir.sh data/$mic/enrollment/$dset
 
     ../voicefilter/sid/compute_vad_decision.sh --nj 10 --cmd "$train_cmd" \
-      --vad-config ../voicefilter/conf/xvectors/vad.conf data/enrollment/$dset
+      --vad-config ../voicefilter/conf/xvectors/vad.conf data/$mic/enrollment/$dset
 
     ../voicefilter/sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd" --nj 10 \
-      ../voicefilter/voxceleb_trained data/enrollment/$dset data/xvectors/$dset 
+      ../voicefilter/voxceleb_trained data/$mic/enrollment/$dset data/$mic/xvectors/"$dset"_orig
   done
 fi
+XVECTORS_DIR_SUFFIX="_orig"
+if  $DO_PCA; then
+  XVECTORS_DIR_SUFFIX=""
+fi
+
+if [ $stage -le 15 ] && $DO_PCA; then
+  for dset in dev eval; do
+    est-pca --read-vectors=true --dim=128 scp:data/xvectors/"$dset"_orig/xvector.scp data/xvectors/"$dset"_orig/pca128.mat
+    mkdir -p data/xvectors/$dset
+    transform-vec data/xvectors/"$dset"_orig/pca128.mat scp:data/xvectors/"$dset"_orig/xvector.scp \
+      ark,scp:data/xvectors/$dset/xvector.ark,data/xvectors/$dset/xvector.scp
+  done
+fi
+
 #stage=100500
-features_dir=data/with_embedding
+features_dir=data/$mic/with_embedding
 if [ $stage -le 15 ]; then
   mkdir -p logs_vf
   #features_dir=data/with_embedding
   #for dset in dev "eval"; do
-  for dset in dev; do
+  for dset in dev eval; do
     # Create fbanks
     mkdir -p data/$mic/"$dset"_fbank
     for f in glm reco2file_and_channel segments spk2utt stm text utt2dur utt2num_frames utt2spk wav.scp; do
       cp data/$mic/$dset/$f data/$mic/"$dset"_fbank/$f
     done
+
     # We use --compress false since eventually we convert these fbanks to mfcc after applying VF model.
     steps/make_fbank.sh --fbank-config ../voicefilter/conf/fbank.conf --nj 8 --compress false --cmd "$train_cmd" data/$mic/"$dset"_fbank
     utils/fix_data_dir.sh data/$mic/"$dset"_fbank
 
     mkdir -p $features_dir/$dset
-    ../voicefilter/local/append_noisy_and_xvectors.sh data/$mic/"$dset"_fbank data/xvectors/$dset \
-      $features_dir/$dset logs_vf --cmd "$train_cmd"
+    append-xvectors scp:data/$mic/xvectors/$dset$XVECTORS_DIR_SUFFIX/xvector.scp ark:data/$mic/enrollment/$dset/utt2spk_orig \
+      scp:data/$mic/"$dset"_fbank/feats.scp ark,scp:$features_dir/$dset/feats.ark,$features_dir/$dset/feats.scp
+    #../voicefilter/local/append_noisy_and_xvectors.sh data/$mic/"$dset"_fbank data/xvectors/$dset$XVECTORS_DIR_SUFFIX \
+    #  $features_dir/$dset logs_vf --cmd "$train_cmd"
     echo "appended"
 
-    mkdir -p "$dset"_vf
+    #mkdir -p "$dset"_vf
     cp -r data/$mic/"$dset"_fbank data/$mic/"$dset"_vf
   done
 fi
 #stage=100500
 
 if [ $stage -le 16 ]; then
-  for dset in dev; do
+  for dset in dev eval; do
+    for f in spk2utt utt2spk; do
+      cp data/$mic/"$dset"_fbank/$f $features_dir/$dset/$f
+    done
     utils/fix_data_dir.sh $features_dir/$dset
-    output_dir=data/$mic/"$dset"_vf/fbanks1
+    output_dir=data/$mic/"$dset"_vf/exp_log_fbanks_340
     mkdir -p $output_dir
-    ../voicefilter/local/evaluate.sh --cmd "$decode_cmd" --nj 16 --use-gpu true \
-      $features_dir/$dset ../voicefilter/exp_fbanks_backup $output_dir || exit 1;
+    ../voicefilter/local/evaluate.sh --iter final_340 --cmd "$decode_cmd" --nj 16 --use-gpu true \
+      $features_dir/$dset ../voicefilter/exp_log_fbanks $output_dir || exit 1;
     echo "used vf model"
     cp $output_dir/output.scp $output_dir/feats_fbank.scp
     for f in glm reco2file_and_channel segments spk2utt stm text utt2dur utt2num_frames utt2spk wav.scp; do
       cp data/$mic/"$dset"_vf/$f $output_dir/$f
     done
+    for f in segments text utt2dur utt2num_frames utt2spk; do
+      awk '{print $1;}' data/with_embedding/$dset/feats.scp | join -1 1 -2 1 - $output_dir/$f > $output_dir/"$f"_temp
+      cp $output_dir/"$f"_temp $output_dir/$f
+      rm $output_dir/"$f"_temp
+    done
+    utils/utt2spk_to_spk2utt.pl <$output_dir/utt2spk >$output_dir/spk2utt || exit 1;
   done
 fi
 #stage=100500
-
+#awk '{print $1;}' abc1 | join -1 1 -2 1 - abc2
 if [ $stage -le 17 ]; then
-  for dset in dev; do
+  for dset in dev eval; do
+    utils/fix_data_dir.sh data/$mic/"$dset"_vf/exp_log_fbanks_340
     # Here we convert fbank features attained after applying VF model to MFCC features
     # expected by ASR model.
     # Note: It's important to have the same number of jobs as when making original fbanks!
     ../voicefilter/local/fbank_to_mfcc.sh --mfcc-config conf/mfcc_hires80.conf --nj 8 \
-      --cmd "$train_cmd" data/$mic/"$dset"_vf/fbanks1
+      --cmd "$train_cmd" data/$mic/"$dset"_vf/exp_log_fbanks_340
   done
 fi
 #stage=100500
@@ -298,11 +336,11 @@ if [ $stage -le 18 ]; then
     #  exp/$mic/nnet3_cleaned/ivectors_"$dset"_vf_hires
 #  done
   #for dset in dev "eval"; do
-  for dset in dev; do
+  for dset in dev eval; do
     #api_opt=
     #[ "$mic" != "ihm" ] && ali_opt="--use-ihm-ali true"
-    utils/fix_data_dir.sh data/$mic/"$dset"_vf/fbanks1
-    local/chain/evaluate_vf.sh data/$mic/"$dset"_vf/fbanks1 fbanks1 --mic $mic
+    utils/fix_data_dir.sh data/$mic/"$dset"_vf/exp_log_fbanks_340
+    local/chain/evaluate_vf.sh data/$mic/"$dset"_vf/exp_log_fbanks_340 exp_log_fbanks_340 $dset --mic $mic
   done
 fi
 

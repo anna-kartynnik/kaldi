@@ -265,12 +265,13 @@ if [ $stage -le 18 ]; then
   rm $dir/.error 2>/dev/null || true
   features_to_decode_folder=$1
   set_name=$2
+  dset=$3
   (
     steps/nnet3/decode.sh --acwt 1.0 --post-decode-acwt 10.0 \
       --nj $nj --cmd "$decode_cmd" \
-      --online-ivector-dir exp/$mic/nnet3${nnet3_affix}/ivectors_dev_hires \
+      --online-ivector-dir exp/$mic/nnet3${nnet3_affix}/ivectors_${dset}_hires \
       --scoring-opts "--min-lmwt 5 " \
-      $graph_dir $features_to_decode_folder $dir/decode_${set_name} || exit 1;
+      $graph_dir $features_to_decode_folder $dir/decode_${dset}_${set_name} || exit 1;
   ) || touch $dir/.error &
   
   wait
