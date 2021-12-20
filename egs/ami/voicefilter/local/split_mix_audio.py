@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# Synthetic dataset preparation: audio chuning and mixing.
+# hk3129: Authored by me.
 
 import argparse
 import glob
@@ -6,7 +8,6 @@ import os
 import shutil
 import random
 import multiprocessing as mp
-#from tqdm import tqdm
 import time
 
 import file_utils
@@ -15,15 +16,11 @@ MAX_NUMBER_OF_SPEAKER_CHUNKS = 25
 MAX_NUMBER_OF_OTHER_NOISES_MIXTURES_PER_SPEAKER_PER_TYPE = 3
 
 def split_audio_file(source_file_path: str, target_file_path: str, chunk_length: int):
-  """
-  """
   sox_split_cmd_str = f'sox -V0 {source_file_path} {target_file_path} rate 16k channels 1 trim 0 {chunk_length} : newfile : restart'
 
   os.system(sox_split_cmd_str)
 
 def split_noises(musan_folder: str, output_folder: str, chunk_length: int):
-  """
-  """
   for noise_type in ['music', 'noise', 'speech']:
     file_utils.recreate_folder(os.path.join(output_folder, noise_type))
     noise_folder = os.path.join(musan_folder, noise_type)
@@ -34,8 +31,6 @@ def split_noises(musan_folder: str, output_folder: str, chunk_length: int):
 
 
 def split_meeting_audio_files(clean_audio_folder: str, meeting_id: str, chunk_length: int):
-  """
-  """
   print(f'Starting audio splitting for meeting {meeting_id}')
   for speaker_id in os.listdir(os.path.join(clean_audio_folder, meeting_id)):
     print(f'Splitting audio for speaker {speaker_id}')
@@ -56,8 +51,6 @@ def split_meeting_audio_files(clean_audio_folder: str, meeting_id: str, chunk_le
     split_audio_file(combined_file_path, chunk_file_path, chunk_length)
 
 def mix_two_audio_files(file_1_cmd, file_2_cmd, output_file_path):
-  """
-  """
   sox_mix_cmd_str = f'sox -V0 -m {file_1_cmd} {file_2_cmd} {output_file_path}'
 
   os.system(sox_mix_cmd_str)
@@ -65,8 +58,6 @@ def mix_two_audio_files(file_1_cmd, file_2_cmd, output_file_path):
 
 def create_audio_mixture_with_other_noise(mix_output_folder: str, meeting_id: str, speaker_chunk: str,
                                           noises_folder: str):
-  """
-  """
   speaker_chunk_number = file_utils.get_speaker_chunk_number(speaker_chunk)
 
   for noise_type in ['music', 'noise', 'speech']:
@@ -89,17 +80,8 @@ def create_audio_mixture_with_other_noise(mix_output_folder: str, meeting_id: st
       volume = random.random() * 0.1
       mix_two_audio_files(speaker_chunk, f'-v {volume} {noise_chunk}', mix_file_path)
 
-      # segment_start = random.randint(0, )
-
-      # sox_mix_cmd_str = f'sox -m {speaker_chunk} "| sox {file_2_path} -p trim {} {}" {output_file_path}'
-
-      # os.system(sox_mix_cmd_str)
-
-
 def create_audio_mixture(mix_output_folder: str, meeting_id: str, speaker_1_chunk: str,
                          speaker_2_chunk: str):
-  """
-  """
   speaker_1_chunk_number = file_utils.get_speaker_chunk_number(speaker_1_chunk)
   speaker_2_chunk_number = file_utils.get_speaker_chunk_number(speaker_2_chunk)
   mix_file_path = file_utils.get_mix_file_name(
@@ -108,16 +90,8 @@ def create_audio_mixture(mix_output_folder: str, meeting_id: str, speaker_1_chun
   volume = random.random() * 0.5
   mix_two_audio_files(speaker_1_chunk, f'-v {volume} {speaker_2_chunk}', mix_file_path)
 
-  # sox_mix_cmd_str = f'sox -m {speaker_1_chunk} {speaker_2_chunk} {mix_file_path}'
-
-  # #print(sox_mix_cmd_str)
-
-  # os.system(sox_mix_cmd_str) 
-
 def mix_audio_files(clean_audio_folder: str, meeting_id: str, mix_parent_folder: str,
                     add_other_noise: bool, noises_folder: str):
-  """
-  """
   print(f'Starting mixing audio for meeting {meeting_id}...')
   number_of_speakers = len(os.listdir(os.path.join(clean_audio_folder, meeting_id)))
   print(f'Found {number_of_speakers} speakers.')
@@ -166,8 +140,6 @@ def mix_audio_files(clean_audio_folder: str, meeting_id: str, mix_parent_folder:
 def process_meeting_folder(logs_folder: str, meeting_id: str, clean_audio_folder: str,
                            chunk_length: int, mix_folder: str, add_other_noise: bool,
                            noises_folder: str):
-  """
-  """
   try:
     meeting_folder = os.path.join(clean_audio_folder, meeting_id)
     if os.path.isdir(meeting_folder):
@@ -242,7 +214,6 @@ def main():
 
   start_time = time.time()
   meeting_list_folders = os.listdir(cfg.clean_audio_folder)
-  # [TODO] is there a better way to view the progress?
   for meeting_id in meeting_list_folders:
     if os.path.isdir(os.path.join(cfg.clean_audio_folder, meeting_id)):
       pool.apply_async(

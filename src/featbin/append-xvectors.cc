@@ -1,3 +1,6 @@
+// Credit: Ted Yin (https://gist.github.com/Determinant/089076dd87fa820f57ea)
+// Appends speaker embeddings to a feature matrix using utterance-to-speaker mapping.
+
 #include "base/kaldi-common.h"
 #include "util/table-types.h"
 #include "util/parse-options.h"
@@ -5,16 +8,16 @@
 
 using namespace kaldi;
 const char *usage =
-    "Concatenate features with speaker level ivector (e.g. appending speaker\n"
-    "ivector to each frame of the corresponding utterance)\n"
-    "Usage: append-ivectors <ivector-rspecifier> <utt2spk-rspecifier> <in-rspecifier2> <out-wspecifier>\n\n"
-    "e.g.: append-ivectors 'ark:copy-vector scp:spk_ivector.scp ark:- |' "
+    "Concatenate features with speaker level xvector (e.g. appending speaker\n"
+    "xvector to each frame of the corresponding utterance)\n"
+    "Usage: append-xvectors <xvector-rspecifier> <utt2spk-rspecifier> <in-rspecifier2> <out-wspecifier>\n\n"
+    "e.g.: append-xvectors 'ark:copy-vector scp:spk_xvector.scp ark:- |' "
     "ark:aurora4/s5/data/train_si84_clean/utt2spk 'ark:copy-feats scp:t.scp ark:- |' 'ark,t:-'\n";
 
 typedef std::map<std::string, std::string> StringToString_t;
 typedef std::map<std::string, Vector<BaseFloat> > StringToVector_t;
 StringToString_t utt2spkr;
-StringToVector_t spkr_ivectors;
+StringToVector_t spkr_xvectors;
 
 int main(int argc, char *argv[]) {
     try {
@@ -25,20 +28,20 @@ int main(int argc, char *argv[]) {
             po.PrintUsage();
             exit(1);
         }
-        std::string spkr_ivector_rspecifier = po.GetArg(1),
+        std::string spkr_xvector_rspecifier = po.GetArg(1),
                     utt2spkr_rspecifier = po.GetArg(2),
                     feature_rspecifier = po.GetArg(3),
                     feature_wspecifier = po.GetArg(4);
 
-        SequentialBaseFloatVectorReader spkr_ivector_reader = SequentialBaseFloatVectorReader(spkr_ivector_rspecifier);
+        SequentialBaseFloatVectorReader spkr_xvector_reader = SequentialBaseFloatVectorReader(spkr_xvector_rspecifier);
         SequentialTokenVectorReader utt2spkr_reader = SequentialTokenVectorReader(utt2spkr_rspecifier);
         SequentialBaseFloatMatrixReader feature_reader = SequentialBaseFloatMatrixReader(feature_rspecifier);
         BaseFloatMatrixWriter feature_writer = BaseFloatMatrixWriter(feature_wspecifier);
 
-        for (; !spkr_ivector_reader.Done(); spkr_ivector_reader.Next())
+        for (; !spkr_xvector_reader.Done(); spkr_xvector_reader.Next())
         {
-            fprintf(stderr, "read ivector for spkr: %s\n", spkr_ivector_reader.Key().c_str());
-            spkr_ivectors[spkr_ivector_reader.Key()] = spkr_ivector_reader.Value();
+            fprintf(stderr, "read xvector for spkr: %s\n", spkr_xvector_reader.Key().c_str());
+            spkr_xvectors[spkr_xvector_reader.Key()] = spkr_xvector_reader.Value();
         }
         for (; !utt2spkr_reader.Done(); utt2spkr_reader.Next())
         {
@@ -57,22 +60,22 @@ int main(int argc, char *argv[]) {
                 fprintf(stderr, "spkr for %s not found\n", utter.c_str());
                 exit(-1);
             }
-            StringToVector_t::iterator it2 = spkr_ivectors.find(it->second);
-            if (it2 == spkr_ivectors.end())
+            StringToVector_t::iterator it2 = spkr_xvectors.find(it->second);
+            if (it2 == spkr_xvectors.end())
             {
-                fprintf(stderr, "ivector for spkr %s not found\n", it->second.c_str());
+                fprintf(stderr, "xvector for spkr %s not found\n", it->second.c_str());
                 exit(-1);
             }
-            const Vector<BaseFloat> &ivector = it2->second;
+            const Vector<BaseFloat> &xvector = it2->second;
             const Matrix<BaseFloat> &feat = feature_reader.Value();
             int n = feat.NumRows();
             int m = feat.NumCols();
-            int im = ivector.Dim();
+            int im = xvector.Dim();
             Matrix<BaseFloat> appended(n, m + im);
             for (int i = 0; i < n; i++)
             {
                 memmove(appended.RowData(i), feat.RowData(i), sizeof(BaseFloat) * m);
-                memmove(appended.RowData(i) + m, ivector.Data(), sizeof(BaseFloat) * im);
+                memmove(appended.RowData(i) + m, xvector.Data(), sizeof(BaseFloat) * im);
             }
             feature_writer.Write(utter, appended);
         }

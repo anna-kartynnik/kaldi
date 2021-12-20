@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Computes the objective based on the neural network outputs and ground truth.
+# hk3129: Authored by me.
 
 import numpy as np
 import argparse
@@ -21,7 +23,6 @@ def generate_matrices(file_path):
         matrix.append([float(value) for value in line.strip().split()])
 
 def main():
- 
   parser = argparse.ArgumentParser()
   parser.add_argument('--predictions-dir', default='exp3/output', type=str)
   parser.add_argument('--ground-truth-dir', default='data/processed5/clean/test', type=str)

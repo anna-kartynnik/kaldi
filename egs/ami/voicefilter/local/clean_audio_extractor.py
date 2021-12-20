@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# Synthetic dataset preparation: clean audio segment extraction.
+# hk3129: Authored by me.
 
 import argparse
 import glob
@@ -7,7 +9,6 @@ import shutil
 import re
 import random
 import multiprocessing as mp
-#from tqdm import tqdm
 import time
 
 import xml.etree.ElementTree as ET
@@ -43,7 +44,6 @@ class SegmentPoint(object):
     self.is_start = is_start
 
   def is_same_segment(self, other):
-    """"""
     return (
       self.speaker_id == other.speaker_id and 
       self.start_time == other.start_time and 
@@ -68,16 +68,12 @@ class SegmentPoint(object):
 
 
 def convert_speaker_id_int_to_str(speaker_id_int: int) -> str:
-  """"""
   return chr(ord('A') + speaker_id_int)
 
 def convert_speaker_id_str_to_int(speaker_id_str: str) -> int:
-  """"""
   return ord(speaker_id_str) - ord('A')
 
 def combine_wavs(wavs):
-  """
-  """
   combined_wav = wavs[0]
 
   for wav in wavs[1:]:
@@ -86,8 +82,6 @@ def combine_wavs(wavs):
   return combined_wav  
 
 def concatenate_audio_files(output_folder: str, meeting_id: str, speaker_id: int, chunk_length: int):
-  """
-  """
   output_files_folder = file_utils.get_clean_segments_folder(output_folder, meeting_id, speaker_id)
   combined_file_path = file_utils.get_combined_file_path(output_files_folder, meeting_id, speaker_id)
 
@@ -103,12 +97,7 @@ def concatenate_audio_files(output_folder: str, meeting_id: str, speaker_id: int
     print(f'There are no audio segments for speaker {speaker_id}, do nothing')
     return
 
-  # [TODO] sort the segments first?
   speaker_wavs = [AudioSegment.from_wav(wav_path) for wav_path in speaker_segment_audio_files]
-  # speaker_combined_wav = speaker_wavs[0]
-
-  # for speaker_wav in speaker_wavs[1:]:
-  #   speaker_combined_wav = speaker_combined_wav.append(speaker_wav)
 
   speaker_combined_wav = combine_wavs(speaker_wavs)
 
@@ -118,7 +107,6 @@ def concatenate_audio_files(output_folder: str, meeting_id: str, speaker_id: int
   required_length_ms = (combined_length_ms // chunk_length_ms + 1) * chunk_length_ms
   padding_length_ms = required_length_ms - combined_length_ms
   print(f'Trying to pad to have length: {required_length_ms}')
-  #padding_length_ms = int(padding_length * 1000)
   print(f'Padding length: {padding_length_ms}')
   left_padding_length_ms = padding_length_ms // 2
   right_padding_length_ms = padding_length_ms - left_padding_length_ms + 1000  # we will trim it later
@@ -173,11 +161,6 @@ def get_segment_start_end_time(segment_xml, words_xml_root):
         end_time = end_word_element.attrib[WORD_ENDTIME_TAG_NAME]
 
 
-  # Debugging, remove?
-  # if start_time != segment_xml.attrib[SEGMENT_TRANSCRIBER_START_TAG_NAME] or end_time != segment_xml.attrib[SEGMENT_TRANSCRIBER_END_TAG_NAME]:
-  #   print(f'found in words: {start_time} and {end_time}')
-  #   print(f'segment times: {segment_xml.attrib[SEGMENT_TRANSCRIBER_START_TAG_NAME]} and {segment_xml.attrib[SEGMENT_TRANSCRIBER_END_TAG_NAME]}')
-
   if start_time is None or end_time is None:
     # Try to use segment element time attributes instead.
     if SEGMENT_TRANSCRIBER_START_TAG_NAME not in segment_xml.attrib or \
@@ -197,16 +180,12 @@ def get_segment_start_end_time(segment_xml, words_xml_root):
 
 
 def extract_duration_from_segment_file(file_path: str):
-  """
-  """
   _, file_name_ext = os.path.split(file_path)
   file_name = file_name_ext.split('.')[0]
   start, end = file_name.split('-')
   return int(end) - int(start)
 
 def save_enrollment(output_folder: str, meeting_id: str, number_of_speakers: int, duration_threshold: int):
-  """
-  """
   # Should be run before concatenation code since the code assumes the output folder consists
   # of only individual segment files.
   for speaker_id_int in range(number_of_speakers):
@@ -239,7 +218,6 @@ def save_enrollment(output_folder: str, meeting_id: str, number_of_speakers: int
       filtered_segment_files = audio_segment_files
     if len(filtered_segment_files) == 0:
       print('No segments')
-      # [TODO] not continue? throw something?
       continue
 
     # Choose a random audio segment as an enrollment file.
@@ -259,10 +237,6 @@ def save_enrollment(output_folder: str, meeting_id: str, number_of_speakers: int
     os.rename(
       random_enrollment_file_name,
       file_utils.get_enrollment_file_path(enrollment_folder, meeting_id, speaker_id_int)
-      # os.path.join(
-      #   enrollment_folder,
-      #   f'{meeting_id}.{DEFAULT_ENROLLMENT_FILE_NAME}-{speaker_id_int}.wav'
-      # )
     )
     print('The enrollment file has been successfully moved into the separate folder.')
 
@@ -330,10 +304,7 @@ def extract_clean_audio(meeting_id: str, audio_folder: str,
       ))
 
   print(f'All the segments for the {meeting_id} meeting have been successfully collected. Sorting...')
-  #print(segment_points)
   segment_points.sort()
-
-  #print(segment_points)
 
   segments_without_overlapping = []
   number_of_overlapping_segments = 0
@@ -369,15 +340,8 @@ def extract_clean_audio(meeting_id: str, audio_folder: str,
     start = segment[1]
     end = segment[2]
 
-    # TODO remove?
     if end - start > max_segment_per_speaker[speaker_id_int]:
       max_segment_per_speaker[speaker_id_int] = end - start
-
-
-    # audio_file_path = os.path.join(audio_folder, f'{meeting_id}.Headset-{speaker_id_int}.wav')   # e.g. ES2002a.Headset-1.wav
-   
-    # whole_audio = AudioSegment.from_wav(audio_file_path) 
-    # audio_segment = whole_audio[start:end]
 
     audio_segment = speaker_original_audio_files[speaker_id_int][start:end]
 
@@ -415,8 +379,6 @@ def extract_clean_audio(meeting_id: str, audio_folder: str,
 def process_meeting_folder(logs_folder: str, meeting_id: str, audio_folder: str, output_folder: str,
                            annotations_folder: str, offset: int, enrollment_duration_threshold: int,
                            chunk_length: int, combine: bool):
-  """
-  """
   try:
     meeting_folder = os.path.join(audio_folder, meeting_id)
     if os.path.isdir(meeting_folder):
@@ -472,9 +434,6 @@ def main():
   if not os.path.exists(cfg.logs_folder):
     os.makedirs(cfg.logs_folder)
 
-  # print('Saving the current configuration')
-  # with open(os.path.join(cfg.logs_folder, 'config.txt'), 'w') as config_file:
-  #   json.dump(cfg.__dict__, config_file)
   file_utils.save_config(cfg.logs_folder, cfg.__dict__)
 
   number_of_processors = mp.cpu_count()
@@ -489,7 +448,6 @@ def main():
   start_time = time.time()
   meeting_list_folders = os.listdir(cfg.audio_folder)
   number_of_meetings = 0
-  # [TODO] is there a better way to view the progress?
   for meeting_id in meeting_list_folders:
     if os.path.isdir(os.path.join(cfg.audio_folder, meeting_id)):
       number_of_meetings += 1

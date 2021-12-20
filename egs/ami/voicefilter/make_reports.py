@@ -1,3 +1,5 @@
+# Training plot generator for nnet3.
+# Author: Hanna Kartynnik (hk3129).
 import argparse
 import sys
 
@@ -8,19 +10,6 @@ import libs.nnet3.report.log_parse as nnet3_log_parse
 
 
 def main():
-  # report = nnet3_log_parse.parse_progress_logs_for_param_diff('exp3', "Parameter differences")
-
-  # #print(report['progress_per_component'])
-  # print("Parameter differences")
-  # for cn in report['progress_per_component'].keys():
-  #   print(f"{cn}: {report['progress_per_component'][cn][1]}, {report['progress_per_component'][cn][1000]}")
-
-  # report = nnet3_log_parse.parse_progress_logs_for_param_diff('exp3', "Relative parameter differences")
-
-  # print("Relative parameter differences")
-  # for cn in report['progress_per_component'].keys():
-  #   print(f"{cn}: {report['progress_per_component'][cn][1]}, {report['progress_per_component'][cn][1000]}")
- 
   parser = argparse.ArgumentParser()
   parser.add_argument('--exp-dir', default='exp4', type=str)
   parser.add_argument('--start-iteration', default=0, type=int)

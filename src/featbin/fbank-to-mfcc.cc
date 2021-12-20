@@ -1,3 +1,6 @@
+// Author: Hanna Kartynnik (hk3129) [implemented from scratch].
+// Computes MFCC features provided (log-)mel filterbanks.
+
 #include "feat/mel-computations.h"
 #include "matrix/kaldi-matrix.h"
 #include "matrix/matrix-functions.h"
@@ -10,6 +13,10 @@ using namespace kaldi;
 
 class LogFbankToMfccComputer {
  public:
+  // Arguments:
+  //   num_bins: The number of mel filter bank bins.
+  //   num_ceps: The number of MFCCs. Should be at most `num_bins`.
+  //   cepstral_lifter: Scaling factor applied to cepstra (claimed to be used for HTK compatibility).
   LogFbankToMfccComputer(int num_bins,
                          int num_ceps,
                          BaseFloat cepstral_lifter)
@@ -20,8 +27,12 @@ class LogFbankToMfccComputer {
       truncated_dct_matrix_(full_dct_matrix_.RowRange(0, num_ceps)),
       lifter_coeffs_(num_ceps)
   {
+    KALDI_ASSERT(num_ceps <= num_bins);
+
+    // Compute the square discrete cosine transform matrix.
     ComputeDctMatrix(&full_dct_matrix_);
-    // Now the `num_ceps` rows referenced by `truncated_dct_matrix_` are the ones corresponding to our MFCC features.
+    // Now the `num_ceps` rows referenced by `truncated_dct_matrix_` (see the initializer list)
+    // are the ones corresponding to our MFCC features.
 
     if (cepstral_lifter_ != 0.0) {
       ComputeLifterCoeffs(cepstral_lifter_, &lifter_coeffs_);
@@ -35,7 +46,9 @@ class LogFbankToMfccComputer {
     KALDI_ASSERT(mfcc != nullptr);
     mfcc->SetZero();
 
+    // Apply the DCT by multiplying with the corresponding matrix.
     mfcc->AddMatVec(1.0, truncated_dct_matrix_, kNoTrans, log_fbank, 0.0);
+
     if (cepstral_lifter_ != 0.0) {
       mfcc->MulElements(lifter_coeffs_);
     }
@@ -49,7 +62,9 @@ class LogFbankToMfccComputer {
     KALDI_ASSERT(mfccs != nullptr);
     mfccs->SetZero();
 
+    // Batch transform via a matrix-matrix multiplication.
     mfccs->AddMatMat(1.0, log_fbanks, kNoTrans, truncated_dct_matrix_, kTrans, 0.0);
+
     if (cepstral_lifter_ != 0.0) {
       mfccs->MulColsVec(lifter_coeffs_);
     }
@@ -90,7 +105,7 @@ int main(int argc, char* argv[]) {
     po.Register("cepstral-lifter", &cepstral_lifter,
                 "Constant controlling scaling of MFCCs");
     po.Register("use-log-fbank", &use_log_fbank,
-		"The input filter banks are logarithmic (default: linear)");
+		"The input filter banks are logarithmic (the default; otherwise linear)");
 
     po.Read(argc, argv);
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-
-# Copyright 
+# Modified AMI data preparation script.
+# hk3129: A heavily modified version of its egs/ami/s5b namesake.
 
 # Note: this is called by ../run.sh.
 
@@ -8,10 +8,8 @@
 
 . ./path.sh
 
-# [TODO] check existing directories
 if [ $# -ne 6 ]; then
   echo "Usage: $0 /path/to/noisy/audio /path/to/clean/audio /path/to/enrollment/audio /path/to/noisy/output /path/to/clean/output /path/to/enrollment/output"
-#  echo "e.g. $0 /foo/bar/AMI ihm"
   exit 1;
 fi
 
@@ -21,9 +19,7 @@ NOISY_AUDIO_DIR=$1
 CLEAN_AUDIO_DIR=$2
 ENROLLMENT_AUDIO_DIR=$3
 
-#SEGS=data/local/annotations/train.txt
 LOCAL_OUTPUT_DIR=data/local/temp
-#data/local/ihm/train
 NOISY_OUTPUT_DIR=$4
 CLEAN_OUTPUT_DIR=$5
 ENROLLMENT_OUTPUT_DIR=$6
@@ -66,13 +62,8 @@ sed -e 's?.*/??' -e 's?.wav??' $LOCAL_OUTPUT_DIR/noisy/wav.flist | \
  perl -ne 'split; $_ =~ m/(.*)\..*\-([0-9]{4})\-(.*)/; print "AMI_$1_H$2_$3\n"' | \
   paste - $LOCAL_OUTPUT_DIR/noisy/wav.flist > $LOCAL_OUTPUT_DIR/noisy/wav_temp.scp
 
-#replace path with an appropriate sox command that select single channel only
+# replace path with an appropriate sox command that select single channel only
 awk '{print $1" sox -c 1 -t wavpcm -e signed-integer "$2" -t wavpcm - |"}' $LOCAL_OUTPUT_DIR/noisy/wav_temp.scp > $LOCAL_OUTPUT_DIR/noisy/wav.scp
-
-# reco2file_and_channel
-# cat $LOCAL_OUTPUT_DIR/noisy/wav.scp \
-#  | perl -ane '$_ =~ m:^(\S+)(H[0-4][0-9]{3}_[0-4][0-9]{3})\s+.*\/([IETB].*)\.wav.*$: || die "bad label $_";
-#               print "$1$2 $3 A\n"; ' > $LOCAL_OUTPUT_DIR/noisy/reco2file_and_channel || exit 1;
 
 sed -e 's?.*/??' -e 's?.wav??' $LOCAL_OUTPUT_DIR/noisy/wav.flist | \
  perl -ne 'split; $_ =~ m/(.*)\..*\-([0-4])([0-9]{3})\-(.*)/; print "AMI_$1_H$2$3_$4 AMI_$1_$2\n"' \
@@ -82,7 +73,6 @@ utils/utt2spk_to_spk2utt.pl <$LOCAL_OUTPUT_DIR/noisy/utt2spk >$LOCAL_OUTPUT_DIR/
 
 # Copy stuff into its final location
 mkdir -p $NOISY_OUTPUT_DIR
-#for f in spk2utt utt2spk wav.scp reco2file_and_channel; do
 for f in spk2utt utt2spk wav.scp; do
   cp $LOCAL_OUTPUT_DIR/noisy/$f $NOISY_OUTPUT_DIR/$f || exit 1;
 done
@@ -105,12 +95,6 @@ awk '{print $1}' $LOCAL_OUTPUT_DIR/noisy/wav_temp.scp | \
 #replace path with an appropriate sox command that select single channel only
 awk '{print $1" sox -c 1 -t wavpcm -e signed-integer "$2" -t wavpcm - |"}' $LOCAL_OUTPUT_DIR/clean/wav_temp.scp > $LOCAL_OUTPUT_DIR/clean/wav.scp
 
-# # reco2file_and_channel
-# cat $LOCAL_OUTPUT_DIR/clean/wav.scp \
-#  | perl -ane '$_ =~ m:^(\S+)(H[0-4][0-9]{3}_[0-4][0-9]{3})\s+.*\/([IETB].*)\.wav.*$: || die "bad label $_";
-#               print "$1$2 $3 A\n"; ' > $LOCAL_OUTPUT_DIR/clean/reco2file_and_channel || exit 1;
-
-
 # utt2spk and spk2utt are the same for all audio types.
 for f in spk2utt utt2spk; do
   cp $LOCAL_OUTPUT_DIR/noisy/$f $LOCAL_OUTPUT_DIR/clean/$f || exit 1;
@@ -125,20 +109,11 @@ done
 
 utils/validate_data_dir.sh --no-feats --no-text $CLEAN_OUTPUT_DIR || exit 1;
 
-
-
-
-
 # Now prepare enrollment data.
 echo "Working with enrollment data."
 
 # Provide enrollments for all utterances. utt-id looks like 'AMI_ES2002a_H0001_3003'.
 awk '{print $1}' $LOCAL_OUTPUT_DIR/clean/spk2utt > $LOCAL_OUTPUT_DIR/clean/spkids
-#awk '{print $1}' $LOCAL_OUTPUT_DIR/clean/uttids | \
-#  perl -ne 'split; $_ =~ m/AMI_(.*)_H([0-4])([0-9]{3})_(.*)/; print "/$1/$2/enrollment/$1.enrollment-$2.wav\n"' | \
-#  awk -v folder=$ENROLLMENT_AUDIO_DIR '{print folder $1}' - | \
-#  paste $LOCAL_OUTPUT_DIR/clean/uttids - > $LOCAL_OUTPUT_DIR/enrollment/wav_temp.scp
-# AMI_EN2001b_3
 awk '{print $1}' $LOCAL_OUTPUT_DIR/clean/spkids | \
   perl -ne 'split; $_ =~ m/AMI_(.*)_([0-4])/; print "/$1/$2/enrollment/$1.enrollment-$2.wav\n"' | \
   awk -v folder=$ENROLLMENT_AUDIO_DIR '{print folder $1}' - | \
@@ -147,22 +122,11 @@ awk '{print $1}' $LOCAL_OUTPUT_DIR/clean/spkids | \
 #replace path with an appropriate sox command that select single channel only
 awk '{print $1" sox -c 1 -t wavpcm -e signed-integer "$2" -t wavpcm - |"}' $LOCAL_OUTPUT_DIR/enrollment/wav_temp.scp > $LOCAL_OUTPUT_DIR/enrollment/wav.scp
 
-# # reco2file_and_channel
-# cat $LOCAL_OUTPUT_DIR/enrollment/wav.scp \
-#  | perl -ane '$_ =~ m:^(\S+)(H[0-4][0-9]{3}_[0-4][0-9]{3})\s+.*\/([IETB].*)\.wav.*$: || die "bad label $_";
-#               print "$1$2 $3 A\n"; ' > $LOCAL_OUTPUT_DIR/enrollment/reco2file_and_channel || exit 1;
-
-
-# utt2spk and spk2utt are the same for all audio types.
 paste $LOCAL_OUTPUT_DIR/clean/spkids $LOCAL_OUTPUT_DIR/clean/spkids > $LOCAL_OUTPUT_DIR/enrollment/spk2utt
 cp $LOCAL_OUTPUT_DIR/enrollment/spk2utt $LOCAL_OUTPUT_DIR/enrollment/utt2spk
-#for f in spk2utt utt2spk; do
-#  cp $LOCAL_OUTPUT_DIR/noisy/$f $LOCAL_OUTPUT_DIR/enrollment/$f || exit 1;
-#done
 
 # Copy stuff into its final location
 mkdir -p $ENROLLMENT_OUTPUT_DIR
-#for f in spk2utt utt2spk wav.scp reco2file_and_channel; do
 for f in spk2utt utt2spk wav.scp; do
   cp $LOCAL_OUTPUT_DIR/enrollment/$f $ENROLLMENT_OUTPUT_DIR/$f || exit 1;
 done

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Runs the voice filter training.
+# Author: Hanna Kartynnik (hk3129).
 
 . ./cmd.sh
 . ./path.sh
@@ -8,12 +10,10 @@ use_gpu=false
 calculate_error=false
 
 MUSAN_ROOT="musan_corpora"
-AMI_AUDIO_DIR="experiments/amicorpus"
-AMI_ANNOTATIONS_DIR="experiments/annotations"
+AMI_AUDIO_DIR="amicorpus"
+AMI_ANNOTATIONS_DIR="annotations"
 NOISY_AUDIO_DIR="data/audio/mix"
 CLEAN_AUDIO_DIR="data/audio/clean"
-#"experiments/data/clean"
-#"data/processed/clean"
 ENROLLMENT_DIR="data/audio/clean"
 EMBEDDING_NNET_DIR="voxceleb_trained"
 PREPARED_DATA_DIR="data/prepared"
@@ -32,8 +32,6 @@ stage=6
 
 set -euo pipefail
 
-# mkdir -p $OUTPUT_DIR
-
 mkdir -p $FEATURES_DIR
 
 
@@ -49,7 +47,6 @@ if [ $stage -le 0 ]; then
     echo "$MUSAN_ROOT folder exists, skipping the stage of downloading MUSAN corpora"
   fi
 fi
-#stage=100500
 
 # Check that AMI audio and transcript files are downloaded.
 if [ $stage -le 1 ]; then
@@ -73,7 +70,6 @@ if [ $stage -le 2 ]; then
     --mix-folder $NOISY_AUDIO_DIR --chunk-length $CHUNK_LENGTH --add-other-noise \
     --musan-folder $MUSAN_ROOT/musan --num-jobs 4 --no-split-musan
 fi
-#stage=100500
 
 # Data preparation (preparing for feature extraction) and splitting into train/dev/eval.
 if [ $stage -le 3 ]; then
@@ -85,7 +81,6 @@ if [ $stage -le 3 ]; then
     local/split_data.sh $PREPARED_DATA_DIR/$audio_type $DATA_DIR/$audio_type local
   done
 fi
-#stage=100500
 
 # Embeddings preparation.
 if [ $stage -le 4 ]; then
@@ -103,7 +98,6 @@ if [ $stage -le 4 ]; then
       $DATA_DIR/xvectors/"$dset"_orig
   done
 fi
-#stage=100500
 
 XVECTORS_DIR_SUFFIX="_orig"
 if $DO_PCA; then
@@ -119,8 +113,6 @@ if [ $stage -le 5 ] && $DO_PCA; then
       ark,scp:$DATA_DIR/xvectors/$dset/xvector.ark,$DATA_DIR/xvectors/$dset/xvector.scp
   done
 fi
-#stage=100500
-
 
 # Feature extraction.
 if [ $stage -le 6 ]; then
@@ -135,13 +127,8 @@ if [ $stage -le 6 ]; then
     local/append_noisy_and_xvectors.sh $DATA_DIR/noisy/$dset \
       $DATA_DIR/xvectors/$dset$XVECTORS_DIR_SUFFIX $FEATURES_DIR/$dset \
       $LOGS_DIR --cmd "$train_cmd" --nj 16
-
-#    append-xvectors scp:$DATA_DIR/xvectors/$dset$XVECTORS_DIR_SUFFIX/xvector.scp ark:$DATA_DIR/noisy/$dset/utt2spk \
-#      scp:$DATA_DIR/noisy/$dset/feats.scp ark,scp:$FEATURES_DIR/$dset/feats.ark,$FEATURES_DIR/$dset/feats.scp
-
   done
 fi
-#stage=100500
 
 # Train nnet
 if [ $stage -le 7 ]; then
@@ -149,8 +136,6 @@ if [ $stage -le 7 ]; then
   local/train_voice_filter.sh $FEATURES_DIR/train $DATA_DIR/clean/train/feats.scp $VF_NNET_DIR \
     --cmd "$train_cmd"
 fi
-stage=100500
-
 
 # Evaluate
 if $calculate_error && [ $stage -le 8 ]; then

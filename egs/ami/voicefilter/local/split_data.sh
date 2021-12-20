@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-
-# Copyright 
+# Splits the dataset into train/dev/eval splits.
+# hk3129: Authored by me.
 
 # Note: this is called by ../run.sh.
 
@@ -8,10 +8,8 @@
 
 . ./path.sh
 
-# [TODO] check existing directories
 if [ $# -ne 3 ]; then
   echo "Usage: $0 /path/to/data /path/to/output /path/to/splits"
-#  echo "e.g. $0 /foo/bar/AMI ihm"
   exit 1;
 fi
 
@@ -21,7 +19,6 @@ DATA_DIR=$1
 OUTPUT_DIR=$2
 SPLITS_DIR=$3
 
-# Data directory check
 if [ ! -d $DATA_DIR ]; then
   echo "Error: $DATA_DIR directory does not exist."
   exit 1;
@@ -31,7 +28,6 @@ mkdir -p $OUTPUT_DIR
 mkdir -p $OUTPUT_DIR/temp
 LOCAL_OUTPUT_DIR=$OUTPUT_DIR/temp
 
-# [TODO] check that wav.scp exists?
 if [[ $DATA_DIR == *"enrollment"* ]]; then
   awk '{print $1}' $DATA_DIR/wav.scp | \
     perl -ne 'split; $_ =~ m/AMI_(.*)_.*/; print "$1 $_"' > $LOCAL_OUTPUT_DIR/meetings2utt
@@ -56,9 +52,3 @@ done
 rm -r $LOCAL_OUTPUT_DIR
 
 echo AMI data splitting succeeded.
-
-
-
-
-
-

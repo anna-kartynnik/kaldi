@@ -1,94 +1,44 @@
 #!/bin/bash
-
-# [TODO] documentation
-# [TODO] license
-#
-
-
-config_nnet=1
-# make_egs=0
-# combine_egs=1
-train_nnet=1
-# make_copies_nnet=1
-# decode_test=1
-
+# Main training script.
+# hk3129: Authored by me.
 
 set -e
 
-# Begin configuration section.
-nj=4
-cmd=run.pl
+config_nnet=1
+train_nnet=1
 
-# End configuration section.
+nj=2
+cmd=run.pl
 
 echo "$0 $@"  # Print the command line for logging.
 
 if [ -f path.sh ]; then . ./path.sh; fi
-#. parse_options.sh || exit 1;
-
-# if [ $# -lt 1 ] || [ $# -gt 3 ]; then
-# # [TODO] documentation
-#   cat >&2 <<EOF
-# Usage: $0 [options] <data-dir> [<log-dir> [<fbank-dir>] ]
-#  e.g.: $0 data/train
-# Note: <log-dir> defaults to <data-dir>/log, and
-#       <fbank-dir> defaults to <data-dir>/data
-# Options:
-#   --nj <nj>                            # number of parallel jobs.
-#   --cmd <run.pl|queue.pl <queue opts>> # how to run jobs.
-# EOF
-#    exit 1;
-# fi
-
-
-# task_list=($1) # space-delimited list of input_dir names
-# typo_list=($2) # space-delimited list of "mono" or "tri"
-# task2weight=$3 # comma-delimited list of weights for target-vectors
-# hidden_dim=$4  # number of hidden dimensions in NNET
-# num_epochs=$5  # number of epochs through data
-# main_dir=$6    # location of /data and /exp dir (probably "MTL")
-
-#hidden_dim=128
 num_epochs=3
 
-data_dir=$1  # like data/train_orig/noisy
-targets_scp=$2 # like data/train_orig/clean/feats.scp
-#embedding_dir=$3
+data_dir=$1
+targets_scp=$2
 exp_dir=$3
-#master_egs_dir=$exp_dir/egs
 
 mkdir -p $exp_dir
 
 
 if [ "$config_nnet" -eq "1" ]; then
 
-    echo "### ============================ ###";
-    echo "### CREATE CONFIG FILES FOR NNET ###";
-    echo "### ============================ ###";
-
-    ## Remove old generated files
-    # rm -rf $exp_dir
-    # for i in `seq 0 $[$num_tasks-1]`; do
-    #     rm -rf exp/${task_list[$i]}/nnet3
-    # done
-
     mkdir -p $exp_dir/configs
-    # ?
     mkdir -p $exp_dir/egs
 
-    #feat_dim=`feat-to-dim scp:$data_dir/feats.scp -`
     target_dim=`feat-to-dim scp:$targets_scp -`
     fbank_dim=$target_dim
     feat_dim=$fbank_dim
     num_targets=$feat_dim
 
-    #hidden_dim=$hidden_dim
     xvector_dim=512
     embedding_dim=128
     lstm_output_dim=200
     fc1_dim=$target_dim
     fc_dim=$target_dim
     input_dim=$(($target_dim + $xvector_dim))
+
     # The following definition is for the voice filter model
     cat <<EOF > $exp_dir/configs/network.xconfig
 input dim=$input_dim name=input
@@ -141,24 +91,10 @@ output name=output dim=$fc_dim input=fc2 objective-type=quadratic
 #output-layer name=output dim=$fc_dim input=fc2 objective-type=quadratic l2-regularize=0.0001 include-log-softmax=false
 EOF
     
-    # # Create separate outptut layer and softmax for all tasks.
-    
-    # for i in `seq 0 $[$num_tasks-1]`;do
-
-    #     num_targets=`tree-info ${multi_ali_dirs[$i]}/tree 2>/dev/null | grep num-pdfs | awk '{print $2}'` || exit 1;
-    
-    #     echo " relu-renorm-layer name=prefinal-affine-task-${i} input=tdnnFINAL dim=$hidden_dim"
-    #     echo " output-layer name=output-${i} dim=$num_targets max-change=1.5"
-        
-    # done >> $exp_dir/configs/network.xconfig
-    
     steps/nnet3/xconfig_to_configs.py \
         --xconfig-file $exp_dir/configs/network.xconfig \
-        --config-dir $exp_dir/configs/ #\
-    #    --nnet-edits="rename-node old-name=output-0 new-name=output"
+        --config-dir $exp_dir/configs/
 
-    # In order to add element-wise product, we need to modify the nnet config file generated just now.
-    # [TODO] Ideally, it's better to add and handle such a layer (fixed layer) in steps/nnet3/xconfig_to_configs.py.
     nnet_config_file=$exp_dir/configs/final.config
     # Save the last `output` node.
     output_config=`tail $nnet_config_file -n 1`
@@ -167,70 +103,13 @@ EOF
     # Add element-wise product component.
     echo "component name=elementwiseproduct type=ElementwiseProductComponent input-dim=$(($fc_dim * 2)) output-dim=$fc_dim" >> $nnet_config_file
     echo "component-node name=elementwiseproduct component=elementwiseproduct  input=Append(fbanks,fc2.sigmoid)" >> $nnet_config_file
-     #echo "$output_config" >> $nnet_config_file
-    #echo "output-node name=output input=output.affine objective=quadratic" >> $nnet_config_file
     echo "output-node name=output input=elementwiseproduct objective=quadratic" >> $nnet_config_file
     
 fi
 
-
-# if [ "$make_egs" -eq "1" ]; then
-        
-#     echo "### ====================================== ###"
-#     echo "### MAKE INDIVIDUAL NNET3 EGS DIR per TASK ###"
-#     echo "### ====================================== ###"
-
-
-#     echo "### MAKE SEPARATE EGS DIR PER TASK ###"
-    
-#     local/nnet3/prepare_multilingual_egs.sh \
-#         --cmd "$cmd" \
-#         --cmvn-opts "--norm-means=false --norm-vars=false" \
-#         --left-context 30 \
-#         --right-context 31 \
-#         $num_tasks \
-#         ${multi_data_dirs[@]} \
-#         ${multi_ali_dirs[@]} \
-#         ${multi_egs_dirs[@]} \
-#         ${num_targets_list[@]} \
-#         || exit 1;
-
-# fi
-
-
-
-# if [ "$combine_egs" -eq "1" ]; then
-
-#     echo "### ====================================== ###"
-#     echo "### COMBINE ALL TASKS EGS INTO ONE BIG DIR ###"
-#     echo "### ====================================== ###"
-    
-#     steps/nnet3/multilingual/combine_egs.sh \
-#         --cmd "$cmd" \
-#         --lang2weight $task2weight \
-#         $num_tasks \
-#         ${multi_egs_dirs[@]} \
-#         $master_egs_dir \
-#         || exit 1;
-
-# fi
-
-
-
 if [ "$train_nnet" -eq "1" ]; then
-
-    echo "### ================ ###"
-    echo "### BEGIN TRAIN NNET ###"
-    echo "### ================ ###"
-
-    train_stage=nanny
-    if [ "$train_stage" = 'nanny' ]; then
-        train_stage=$(cat "$exp_dir/nanny-last-iter")
-        train_stage=$((train_stage + 1))
-    fi
-#--trainer.input-model="exp_lin_power_fbanks_backup2/146.raw"
     steps/nnet3/train_raw_dnn.py \
-        --stage=$train_stage \
+        --stage=-5 \
         --cmd="$cmd" \
         --nj=$nj \
         --trainer.num-epochs=$num_epochs \
@@ -253,156 +132,4 @@ if [ "$train_nnet" -eq "1" ]; then
         --dir=$exp_dir  \
         --report-key="objective" \
         || exit 1;
-    
-    #   --egs.dir $master_egs_dir \
-    
-    # ### Print training info ###
-    # cat_tasks=""
-    # cat_typos=""
-    # for i in `seq 0 $[$num_tasks-1]`; do
-    #     cat_tasks="${cat_tasks}_${task_list[$i]}"
-    #     cat_typos="${cat_typos}_${typo_list[$i]}"
-    # done
-    
-    # # Get training ACC in right format for plotting
-    # utils/format_accuracy_for_plot.sh "$main_dir/exp/nnet3/multitask/log" "ACC_nnet3_multitask${cat_tasks}${cat_typos}.txt";
-
-
-
-    echo "### ============== ###"
-    echo "### END TRAIN NNET ###"
-    echo "### ============== ###"
-
 fi
-
-
-
-
-
-# if [ "$make_copies_nnet" -eq "1" ]; then
-
-#     echo "### ========================== ###"
-#     echo "### SPLIT & COPY NNET PER TASK ###"
-#     echo "### ========================== ###"
-    
-#     for i in `seq 0 $[$num_tasks-1]`;do
-#         task_dir=$exp_dir/${task_list[$i]}
-        
-#         mkdir -p $task_dir
-        
-#         echo "$0: rename output name for each task to 'output' and "
-#         echo "add transition model."
-        
-#         nnet3-copy \
-#             --edits="rename-node old-name=output-$i new-name=output" \
-#             $exp_dir/final.raw \
-#             - | \
-#             nnet3-am-init \
-#                 ${multi_ali_dirs[$i]}/final.mdl \
-#                 - \
-#                 $task_dir/final.mdl \
-#             || exit 1;
-        
-#         cp $exp_dir/cmvn_opts $task_dir/cmvn_opts || exit 1;
-        
-#         echo "$0: compute average posterior and readjust priors for task ${task_list[$i]}."
-        
-#         steps/nnet3/adjust_priors.sh \
-#             --cmd "$cmd" \
-#             --use-gpu true \
-#             --iter "final" \
-#             --use-raw-nnet false \
-#             $task_dir ${multi_egs_dirs[$i]} \
-#             || exit 1;
-#     done
-# fi
-
-
-
-
-
-# if [ "$decode_test" -eq "1" ]; then
-
-#     echo "### ============== ###"
-#     echo "### BEGIN DECODING ###"
-#     echo "### ============== ###"
-
-#     if [ "${typo_list[0]}" == "mono" ]; then
-#         echo "Decoding with monophone graph, make sure you compiled"
-#         echo "it with mkgraph.sh --mono (the flag is important!)"
-#     fi
-    
-#     test_data_dir=data_${task_list[0]}/test
-#     graph_dir=exp_${task_list[0]}/${typo_list[0]}phones/graph
-#     decode_dir=${exp_dir}/decode
-#     final_model=${exp_dir}/${task_list[0]}/final_adj.mdl
-    
-#     mkdir -p $decode_dir
-
-#     unknown_phone="SPOKEN_NOISE"
-#     silence_phone="SIL"
-
-#     echo "### decoding with $( `nproc` ) jobs, unigram LM ###"
-    
-#     steps/nnet3/decode.sh \
-#         --nj `nproc` \
-#         --cmd $cmd \
-#         --max-active 250 \
-#         --min-active 100 \
-#         $graph_dir \
-#         $test_data_dir\
-#         $decode_dir \
-#         $final_model \
-#         $unknown_phone \
-#         $silence_phone \
-#         | tee $decode_dir/decode.log
-
-#     printf "\n#### BEGIN CALCULATE WER ####\n";
-
-#     # Concatenate tasks to for WER filename
-#     cat_tasks=""
-#     cat_typos=""
-#     for i in `seq 0 $[$num_tasks-1]`; do
-#         cat_tasks="${cat_tasks}_${task_list[$i]}"
-#         cat_typos="${cat_typos}_${typo_list[$i]}"
-#     done
-    
-#     for x in ${decode_dir}*; do
-#         [ -d $x ] && grep WER $x/wer_* | utils/best_wer.sh > WER_nnet3_multitask${cat_tasks}${cat_typos}.txt;
-#     done
-
-
-#     echo "hidden_dim=$hidden_dim"  >> WER_nnet3_multitask${cat_tasks}${cat_typos}.txt;
-#     echo "num_epochs=$num_epochs"  >> WER_nnet3_multitask${cat_tasks}${cat_typos}.txt;
-#     echo "task2weight=$task2weight" >> WER_nnet3_multitask${cat_tasks}${cat_typos}.txt;
-
-#     echo ""  >> WER_nnet3_multitask${cat_tasks}${cat_typos}.txt;
-
-#     echo "test_data_dir=$test_data_dir" >> WER_nnet3_multitask${cat_tasks}${cat_typos}.txt;
-#     echo "graph_dir=$graph_dir" >> WER_nnet3_multitask${cat_tasks}${cat_typos}.txt;
-#     echo "decode_dir=$decode_dir" >> WER_nnet3_multitask${cat_tasks}${cat_typos}.txt;
-#     echo "final_model=$final_model" >> WER_nnet3_multitask${cat_tasks}${cat_typos}.txt;
-    
-    
-#     for i in `seq 0 $[$num_tasks-1]`;do
-        
-#         num_targets=${num_targets_list[$i]}
-
-#         num_targets=`tree-info ${multi_ali_dirs[$i]}/tree 2>/dev/null | grep num-pdfs | awk '{print $2}'` || exit 1;
-        
-#         echo "
-#     ###### BEGIN TASK INFO ######
-#     task= ${task_list[$i]}
-#     num_targets= $num_targets
-#     data_dir= ${multi_data_dirs[$i]}
-#     ali_dir= ${multi_ali_dirs[$i]}
-#     egs_dir= ${multi_egs_dirs[$i]}
-#     ###### END TASK INFO ######
-#     " >> WER_nnet3_multitask${cat_tasks}${cat_typos}.txt;
-#     done
-
-#     echo "###==============###"
-#     echo "### END DECODING ###"
-#     echo "###==============###"
-
-# fi

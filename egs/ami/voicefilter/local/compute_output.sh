@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Calls the neural network inference code.
+# hk3129: Authored by me.
 
 set -e
 set -o pipefail
@@ -8,11 +10,10 @@ if [ -f ./path.sh ]; then
   . ./path.sh;
 fi
 
-nj=4
+nj=1
 cmd=run.pl
 
 iter=final
-#final
 use_gpu=false
 
 if [ $# -le 3 ]; then

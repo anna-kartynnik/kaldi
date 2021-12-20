@@ -3,6 +3,7 @@
 . ./cmd.sh
 . ./path.sh
 
+# hk3129: Commented out this dependency.
 # Path to Fisher transcripts LM interpolation (if not defined only AMI transcript LM is built),
 #case $(hostname -d) in
 #  fit.vutbr.cz) FISHER_TRANS=/mnt/matylda2/data/FISHER/fe_03_p1_tran ;; # BUT,
