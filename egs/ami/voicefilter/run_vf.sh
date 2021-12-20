@@ -3,10 +3,13 @@
 . ./cmd.sh
 . ./path.sh
 
+mic=ihm
+use_gpu=false
+calculate_error=false
 
 MUSAN_ROOT="musan_corpora"
-AMI_AUDIO_DIR="amicorpus"
-AMI_ANNOTATIONS_DIR="annotations"
+AMI_AUDIO_DIR="experiments/amicorpus"
+AMI_ANNOTATIONS_DIR="experiments/annotations"
 NOISY_AUDIO_DIR="data/audio/mix"
 CLEAN_AUDIO_DIR="data/audio/clean"
 #"experiments/data/clean"
@@ -17,10 +20,12 @@ PREPARED_DATA_DIR="data/prepared"
 DATA_DIR="data/processed"
 FEATURES_DIR=$DATA_DIR/noisy_embedding
 LOGS_DIR="logs"
-VF_NNET_DIR="exp_log_fbanks"
+VF_NNET_DIR="exp"
 # Chunk length for voice filter (in seconds)
 CHUNK_LENGTH=3
 DO_PCA=false
+PCA_DIM=256
+DECODE_SETS="dev eval"
 
 
 stage=6
@@ -31,13 +36,6 @@ set -euo pipefail
 
 mkdir -p $FEATURES_DIR
 
-#abc=`feat-to-dim scp:./data/train_orig/noisy/feats.scp -`
-#abc=`copy-feats scp:./$DATA_DIR/clean/train1/feats.scp ark,t:train_clean`
-#abc=`copy-feats scp:./$VF_NNET_DIR/output/output.scp ark,t:exp3_output`
-#abc=`copy-vector scp:./voxceleb_trained/xvectors/xvector.scp ark,t:test`
-#abc=`append-vector-to-feats scp:./data/train_orig/noisy/feats.scp scp:./voxceleb_trained/xvectors/xvector.scp ark,t:test_append`
-#echo $abc
-#stage=100500
 
 if [ $stage -le 0 ]; then
   # Prepare the MUSAN corpus, which consists of music, speech, and noise
@@ -53,28 +51,35 @@ if [ $stage -le 0 ]; then
 fi
 #stage=100500
 
-# Data extraction (extract clean/enrollment/mixed audio using transcripts)
+# Check that AMI audio and transcript files are downloaded.
 if [ $stage -le 1 ]; then
-  #python3 local/clean_audio_extractor.py --audio-folder $AMI_AUDIO_DIR --annotations-folder $AMI_ANNOTATIONS_DIR \
-  #  --output-folder $CLEAN_AUDIO_DIR --logs-folder $LOGS_DIR/extraction --offset 100 --enrollment-duration-threshold 3000 \
-  #  --chunk-length $CHUNK_LENGTH --combine --num-jobs 32
+  if [ ! -d $AMI_AUDIO_DIR ]; then
+    echo "There is no audio data has been found. Please run stage 0 from ../s5b/run.sh"
+    exit 1;
+  fi
+  if [ ! -d $AMI_ANNOTATIONS_DIR ]; then
+    echo "There is no transcript data found. Please run ../s5b/run_prepare_shared.sh"
+    exit 1;
+  fi
+fi
+
+# Data extraction (extract clean/enrollment/mixed audio using transcripts)
+if [ $stage -le 2 ]; then
+  python3 local/clean_audio_extractor.py --audio-folder $AMI_AUDIO_DIR --annotations-folder $AMI_ANNOTATIONS_DIR \
+    --output-folder $CLEAN_AUDIO_DIR --logs-folder $LOGS_DIR/extraction --offset 100 --enrollment-duration-threshold 3000 \
+    --chunk-length $CHUNK_LENGTH --combine --num-jobs 4
+
   python3 local/split_mix_audio.py --clean-audio-folder $CLEAN_AUDIO_DIR --logs-folder $LOGS_DIR/mix \
     --mix-folder $NOISY_AUDIO_DIR --chunk-length $CHUNK_LENGTH --add-other-noise \
-    --musan-folder $MUSAN_ROOT/musan --num-jobs 32
+    --musan-folder $MUSAN_ROOT/musan --num-jobs 4 --no-split-musan
 fi
 #stage=100500
 
-# Data preparation (preparing for feature extraction)
-if [ $stage -le 2 ]; then
+# Data preparation (preparing for feature extraction) and splitting into train/dev/eval.
+if [ $stage -le 3 ]; then
   local/prepare_data.sh $NOISY_AUDIO_DIR $CLEAN_AUDIO_DIR $ENROLLMENT_DIR \
     $PREPARED_DATA_DIR/noisy $PREPARED_DATA_DIR/clean $PREPARED_DATA_DIR/enrollment
-fi
-#stage=100500
 
-# Data splitting to train/test datasets.
-if [ $stage -le 3 ]; then
-  # Combine dev and eval meetings to use them as a test set.
-  #cat local/split_dev.orig local/split_eval.orig | sort -u > local/split_test.orig
   # Here the data will be splitted into train/dev/eval sets.
   for audio_type in noisy clean enrollment; do
     local/split_data.sh $PREPARED_DATA_DIR/$audio_type $DATA_DIR/$audio_type local
@@ -86,16 +91,15 @@ fi
 if [ $stage -le 4 ]; then
   for dset in train; do
     steps/make_mfcc_pitch.sh --write-utt2num-frames true --mfcc-config conf/xvectors/mfcc.conf \
-      --pitch-config conf/xvectors/pitch.conf --nj 32 --cmd "$train_cmd --mem 4G" $DATA_DIR/enrollment/$dset
-    utils/fix_data_dir.sh $DATA_DIR/enrollment/$dset
+      --pitch-config conf/xvectors/pitch.conf --nj 2 --cmd "$train_cmd" $DATA_DIR/enrollment/$dset
 
-    sid/compute_vad_decision.sh --nj 32 --cmd "$train_cmd --mem 4G" --vad-config conf/xvectors/vad.conf \
+    sid/compute_vad_decision.sh --nj 2 --cmd "$train_cmd" --vad-config conf/xvectors/vad.conf \
       $DATA_DIR/enrollment/$dset
 
     utils/fix_data_dir.sh $DATA_DIR/enrollment/$dset
 
     sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 4G" --nj 4 \
-      --use-gpu wait $EMBEDDING_NNET_DIR $DATA_DIR/enrollment/$dset \
+      --use-gpu $use_gpu $EMBEDDING_NNET_DIR $DATA_DIR/enrollment/$dset \
       $DATA_DIR/xvectors/"$dset"_orig
   done
 fi
@@ -108,9 +112,10 @@ fi
 
 if [ $stage -le 5 ] && $DO_PCA; then
   for dset in train; do
-    est-pca --read-vectors=true --dim=256 scp:$DATA_DIR/xvectors/"$dset"_orig/xvector.scp $DATA_DIR/xvectors/"$dset"_orig/pca256.mat
+    est-pca --read-vectors=true --dim=$PCA_DIM scp:$DATA_DIR/xvectors/"$dset"_orig/xvector.scp \
+      $DATA_DIR/xvectors/"$dset"_orig/pca$PCA_DIM.mat
     mkdir -p $DATA_DIR/xvectors/$dset
-    transform-vec $DATA_DIR/xvectors/"$dset"_orig/pca256.mat scp:$DATA_DIR/xvectors/"$dset"_orig/xvector.scp \
+    transform-vec $DATA_DIR/xvectors/"$dset"_orig/pca$PCA_DIM.mat scp:$DATA_DIR/xvectors/"$dset"_orig/xvector.scp \
       ark,scp:$DATA_DIR/xvectors/$dset/xvector.ark,$DATA_DIR/xvectors/$dset/xvector.scp
   done
 fi
@@ -121,46 +126,18 @@ fi
 if [ $stage -le 6 ]; then
   for dset in train; do
     for audio_type in noisy clean; do
-      steps/make_fbank.sh --nj 16 --compress false --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
-      #steps/make_mfcc.sh --nj 15 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
-      #steps/make_mfcc.sh --mfcc-config conf/mfcc_hires80.conf --nj 20 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
-      #steps/compute_cmvn_stats.sh $DATA_DIR/$audio_type/$dset
-      #compute-spectrogram-feats --return-raw-fft=true --write-utt2dur=ark,t:$DATA_DIR/$audio_type/$dset/utt2dur  --verbose=2 \
-      #  scp,p:$DATA_DIR/$audio_type/$dset/wav.scp ark,scp:$DATA_DIR/$audio_type/$dset/raw_sg_feats.ark,$DATA_DIR/$audio_type/$dset/feats.scp
-      #cp $DATA_DIR/$audio_type/$dset/feats.scp $DATA_DIR/$audio_type/$dset/feats_sp.scp
-      #local/fbank_to_mfcc.sh --nj 16 --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset
+      steps/make_fbank.sh --nj 4 --compress false --cmd "$train_cmd" $DATA_DIR/$audio_type/$dset || exit 1;
 
       utils/fix_data_dir.sh $DATA_DIR/$audio_type/$dset
     done
 
-    #mkdir -p $FEATURES_DIR/$dset
-    #local/append_noisy_and_xvectors.sh $DATA_DIR/noisy/$dset \
-    #  $DATA_DIR/xvectors/$dset$XVECTORS_DIR_SUFFIX $FEATURES_DIR/$dset \
-    #  $LOGS_DIR --cmd "$train_cmd" --nj 16
-
-    append-xvectors scp:$DATA_DIR/xvectors/$dset$XVECTORS_DIR_SUFFIX/xvector.scp ark:$DATA_DIR/noisy/$dset/utt2spk \
-      scp:$DATA_DIR/noisy/$dset/feats.scp ark,scp:$FEATURES_DIR/$dset/feats.ark,$FEATURES_DIR/$dset/feats.scp
-
-  done
-fi
-#stage=100500
-
-if [ $stage -le -1 ]; then
-  for dset in train; do
-    # Made dimensionality reduction for xvectors.
-    if [ ! -d $DATA_DIR/xvectors_orig ]; then
-      mkdir $DATA_DIR/xvectors_orig
-      cp -r $DATA_DIR/xvectors/$dset $DATA_DIR/xvectors_orig/$dset
-      sed -i 's/xvectors/xvectors_orig/g' $DATA_DIR/xvectors_orig/$dset/xvector.scp
-      rm -r $DATA_DIR/xvectors/$dset 
-    fi
-    [ ! -d $DATA_DIR/xvectors/$dset ] && mkdir -p $DATA_DIR/xvectors/$dset
-    est-pca --dim=64 --read-vectors=true scp:$DATA_DIR/xvectors_orig/$dset/xvector.scp $DATA_DIR/xvectors_orig/$dset/pca64.mat || exit 1;
-    transform-vec $DATA_DIR/xvectors_orig/$dset/pca64.mat scp:$DATA_DIR/xvectors_orig/$dset/xvector.scp \
-      ark,scp:$DATA_DIR/xvectors/$dset/xvector.ark,$DATA_DIR/xvectors/$dset/xvector.scp || exit 1;
-    mkdir -p $FEATURES_DIR/$dset || exit 1;
-    local/append_noisy_and_xvectors.sh $DATA_DIR/noisy/$dset $DATA_DIR/xvectors/$dset $FEATURES_DIR/$dset \
+    mkdir -p $FEATURES_DIR/$dset
+    local/append_noisy_and_xvectors.sh $DATA_DIR/noisy/$dset \
+      $DATA_DIR/xvectors/$dset$XVECTORS_DIR_SUFFIX $FEATURES_DIR/$dset \
       $LOGS_DIR --cmd "$train_cmd" --nj 16
+
+#    append-xvectors scp:$DATA_DIR/xvectors/$dset$XVECTORS_DIR_SUFFIX/xvector.scp ark:$DATA_DIR/noisy/$dset/utt2spk \
+#      scp:$DATA_DIR/noisy/$dset/feats.scp ark,scp:$FEATURES_DIR/$dset/feats.ark,$FEATURES_DIR/$dset/feats.scp
 
   done
 fi
@@ -174,21 +151,22 @@ if [ $stage -le 7 ]; then
 fi
 stage=100500
 
+
 # Evaluate
-if [ $stage -le 8 ]; then
-  for dset in dev "eval"; do
+if $calculate_error && [ $stage -le 8 ]; then
+  for dset in dev eval; do
     # Prepare embedding.
     steps/make_mfcc_pitch.sh --write-utt2num-frames true --mfcc-config conf/xvectors/mfcc.conf \
-      --pitch-config conf/xvectors/pitch.conf --nj 32 --cmd "$train_cmd --mem 4G" $DATA_DIR/enrollment/$dset
+      --pitch-config conf/xvectors/pitch.conf --nj 2 --cmd "$train_cmd --mem 4G" $DATA_DIR/enrollment/$dset
     utils/fix_data_dir.sh $DATA_DIR/enrollment/$dset
 
-    sid/compute_vad_decision.sh --nj 32 --cmd "$train_cmd --mem 4G" --vad-config conf/xvectors/vad.conf \
+    sid/compute_vad_decision.sh --nj 2 --cmd "$train_cmd --mem 4G" --vad-config conf/xvectors/vad.conf \
       $DATA_DIR/enrollment/$dset
 
     utils/fix_data_dir.sh $DATA_DIR/enrollment/$dset
 
     sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 4G" --nj 4 \
-      --use-gpu wait $EMBEDDING_NNET_DIR $DATA_DIR/enrollment/$dset \
+      --use-gpu $use_gpu $EMBEDDING_NNET_DIR $DATA_DIR/enrollment/$dset \
       $DATA_DIR/xvectors/$dset
 
     # Feature extraction.
@@ -198,27 +176,21 @@ if [ $stage -le 8 ]; then
     done
 
     # Prepare input for the nnet.
-    mkdir -p $FEATURES_DIR/$dset || exit 1;
-    local/append_noisy_and_xvectors.sh $DATA_DIR/noisy/$dset $DATA_DIR/xvectors/$dset $FEATURES_DIR/$dset \
+    local/append_noisy_and_xvectors.sh $DATA_DIR/noisy/$dset \
+      $DATA_DIR/xvectors/$dset$XVECTORS_DIR_SUFFIX $FEATURES_DIR/$dset \
       $LOGS_DIR --cmd "$train_cmd" --nj 16
 
     # Get the nnet output for the set.
-    #utils/fix_data_dir.sh $FEATURES_DIR/$dset
-    #local/evaluate.sh $FEATURES_DIR/$dset $VF_NNET_DIR $VF_NNET_DIR/"$dset"_output \
-    #  --use-gpu true --cmd "$decode_cmd" --nj 10 || exit 1;
-  done
-fi
-
-if [ $stage -le 9 ]; then
-  for dset in dev; do
-    # Get the nnet output for the set.
-    local/evaluate.sh $FEATURES_DIR/$dset $VF_NNET_DIR $VF_NNET_DIR/"$dset"_output \
-      --use-gpu true --cmd "$decode_cmd" --nj 10 || exit 1;
+    local/compute_output.sh $FEATURES_DIR/$dset $VF_NNET_DIR $VF_NNET_DIR/"$dset"_output \
+      --use-gpu $use_gpu --cmd "$decode_cmd" --nj 10 || exit 1;
 
     copy-feats scp:$VF_NNET_DIR/"$dset"_output/output.scp ark,t:$VF_NNET_DIR/"$dset"_output/feats_matrix
-    #copy-feats scp:$DATA_DIR/clean/$dset/feats.scp ark,t:$DATA_DIR/clean/$dset/feats_matrix
     local/compute_objective.py --predictions-dir $VF_NNET_DIR/"$dset"_output --ground-truth-dir $DATA_DIR/clean/$dset
   done
 fi
 
+if [ $stage -le 9 ]; then
+  local/decode.sh --stage $stage --mic $mic --do-pca $DO_PCA "$DECODE_SETS" $ENROLLMENT_DIR $VF_NNET_DIR
+fi
 
+exit 0;

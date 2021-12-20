@@ -17,7 +17,6 @@ MAX_NUMBER_OF_OTHER_NOISES_MIXTURES_PER_SPEAKER_PER_TYPE = 3
 def split_audio_file(source_file_path: str, target_file_path: str, chunk_length: int):
   """
   """
-  # [TODO] redo with pysox?
   sox_split_cmd_str = f'sox -V0 {source_file_path} {target_file_path} rate 16k channels 1 trim 0 {chunk_length} : newfile : restart'
 
   os.system(sox_split_cmd_str)
@@ -201,8 +200,11 @@ def main():
   parser.add_argument('--add-other-noise', dest='add_other_noise', action='store_true')
   parser.add_argument('--no-other-noise', dest='add_other_noise', action='store_false')
   parser.add_argument('--musan-folder', default='./../musan_corpus/musan', type=str)
+  parser.add_argument('--split-musan', dest='split_musan', action='store_true')
+  parser.add_argument('--no-split-musan', dest='split_musan', action='store_false')
 
   parser.set_defaults(add_other_noise=True)
+  parser.set_defaults(split_musan=True)
 
   cfg = parser.parse_args()
 
@@ -220,13 +222,14 @@ def main():
 
   noises_folder = None
   if cfg.add_other_noise:
-    print('Recreating noises folder')
     noises_folder = os.path.join(cfg.musan_folder, 'mix')
-    file_utils.recreate_folder(noises_folder)
+    if cfg.split_musan:
+      print('Recreating noises folder')
+      file_utils.recreate_folder(noises_folder)
 
-    print('Splitting MUSAN files')
-    split_noises(cfg.musan_folder, noises_folder, cfg.chunk_length)
-    print('Successfully splitted MUSAN files')
+      print('Splitting MUSAN files')
+      split_noises(cfg.musan_folder, noises_folder, cfg.chunk_length)
+      print('Successfully splitted MUSAN files')
 
   number_of_processors = mp.cpu_count()
   if cfg.num_jobs > number_of_processors:
