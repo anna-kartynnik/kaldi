@@ -28,7 +28,7 @@ PCA_DIM=256
 DECODE_SETS="dev eval"
 
 
-stage=6
+stage=0
 
 set -euo pipefail
 
